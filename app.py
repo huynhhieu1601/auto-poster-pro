@@ -422,7 +422,6 @@ defaults = {
     "user_id": None,
     "username": "",
     "worker_started": False,
-    "worker_logs": [],
     "nav_view": "🚀 Content Generator",
     "editing_site": None,
 }
@@ -464,7 +463,7 @@ def login_user(username, password):
     return False, "Invalid username or password."
 
 def logout_user():
-    for key in ["logged_in", "user_id", "username", "user_role", "generated_outline", "editing_site", "worker_logs"]:
+    for key in ["logged_in", "user_id", "username", "user_role", "generated_outline", "editing_site"]:
         if key in st.session_state:
             st.session_state[key] = False if key == "logged_in" else (None if key in ["user_id", "editing_site", "user_role"] else "")
     st.session_state.worker_started = False
@@ -733,18 +732,26 @@ def run_full_pipeline(
         return ("", "", "", None, str(e))
 
 # ============================================================
+# THREAD-SAFE GLOBAL LOG BUFFER
+# ============================================================
+WORKER_LOGS = []
+
+def worker_log(message):
+    """Thread-safe logging to global WORKER_LOGS list (accessible from background threads)."""
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_entry = f"[{ts}] {message}"
+    WORKER_LOGS.append(log_entry)
+    # Keep only the last 100 logs
+    if len(WORKER_LOGS) > 100:
+        WORKER_LOGS.pop(0)
+    print(log_entry)  # Also print to console
+
+# ============================================================
 # BACKGROUND WORKER
 # ============================================================
 def get_gsheet_client(sa_json):
     import gspread
     return gspread.service_account_from_dict(json.loads(sa_json))
-
-def worker_log(message):
-    ts = datetime.now().strftime("%H:%M:%S")
-    if "worker_logs" in st.session_state:
-        st.session_state.worker_logs.append(f"[{ts}] {message}")
-        if len(st.session_state.worker_logs) > 100:
-            st.session_state.worker_logs = st.session_state.worker_logs[-100:]
 
 def parse_schedule_date(date_str, time_str):
     """
@@ -1347,11 +1354,11 @@ elif st.session_state.nav_view == "⚙️ Global Settings":
         st.success("✅ All settings saved!")
 
 # ============================================================
-# WORKER LOGS
+# WORKER LOGS (reads from global WORKER_LOGS)
 # ============================================================
 st.markdown("---")
 with st.expander("🔧 Background Worker Logs", expanded=False):
-    if st.session_state.worker_logs:
-        st.code("\n".join(st.session_state.worker_logs[-50:]), language="text")
+    if WORKER_LOGS:
+        st.code("\n".join(WORKER_LOGS[-50:]), language="text")
     else:
         st.caption("No worker logs yet.")
