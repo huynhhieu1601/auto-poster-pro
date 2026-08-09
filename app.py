@@ -1175,6 +1175,37 @@ with st.sidebar:
         st.markdown(f'<span class="badge-purple" style="font-size:0.7rem;">🛡️ Admin ({current_role})</span>', unsafe_allow_html=True)
 
     st.markdown("---")
+    # --- CREDIT BALANCE DISPLAY ---
+    user_credits = get_user_credits(uid)
+    cost_per_post = get_cost_per_post()
+    st.sidebar.metric("💳 Số dư tài khoản", f"{user_credits:,.0f} VNĐ")
+    st.sidebar.caption(f"Chi phí: {cost_per_post:,.0f} VNĐ / bài viết thành công")
+    
+    # --- RECHARGE PACKAGES (ALL USERS) ---
+    with st.expander("💳 Nạp điểm / Mua gói bài đăng", expanded=False):
+        st.markdown("**📦 Các gói bài đăng:**")
+        col_p1, col_p2, col_p3 = st.columns(3)
+        with col_p1:
+            if st.button("🎯 Gói 25 bài\n50,000 VNĐ", use_container_width=True, key="pkg25"):
+                st.info("Vui lòng chuyển khoản theo thông tin bên dưới và liên hệ Admin để xác nhận.")
+        with col_p2:
+            if st.button("🔥 Gói 50 bài\n100,000 VNĐ", use_container_width=True, key="pkg50"):
+                st.info("Vui lòng chuyển khoản theo thông tin bên dưới và liên hệ Admin để xác nhận.")
+        with col_p3:
+            if st.button("🚀 Gói 100 bài\n200,000 VNĐ", use_container_width=True, key="pkg100"):
+                st.info("Vui lòng chuyển khoản theo thông tin bên dưới và liên hệ Admin để xác nhận.")
+        
+        st.markdown("---")
+        st.markdown("**🏦 Thông tin chuyển khoản:**")
+        st.markdown("""
+        - **Ngân hàng:** MB Bank (Ngân hàng TMCP Quân Đội)
+        - **Số tài khoản:** 0968335777
+        - **Chủ tài khoản:** NGUYEN VAN A
+        - **Nội dung chuyển khoản:** `NAP <username>` (vd: NAP admin)
+        """)
+        st.caption("⏳ Sau khi chuyển khoản, vui lòng liên hệ Admin để được cộng điểm trong vòng 5-10 phút.")
+    
+    st.markdown("---")
     st.markdown("""
     <div class="sidebar-info-box">
         <strong>💡 Tip</strong><br>
