@@ -126,6 +126,23 @@ st.markdown("""
         border-radius: 12px; padding: 0.75rem 1rem;
         font-size: 0.8rem; color: #C7D2FE; margin-top: 1rem;
     }
+    .bank-card {
+        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+        border: 1px solid #334155;
+        border-radius: 12px;
+        padding: 16px;
+        color: #ffffff;
+        margin-top: 10px;
+        margin-bottom: 15px;
+    }
+    .bank-badge {
+        background: #0284c7;
+        color: white;
+        font-size: 11px;
+        font-weight: bold;
+        padding: 2px 8px;
+        border-radius: 4px;
+    }
 
     /* --- BUTTONS --- */
     .stButton > button {
@@ -1013,24 +1030,26 @@ with st.sidebar:
     st.sidebar.caption(f"Chi phí: {cost_per_post:,.0f} VNĐ / bài viết thành công")
     with st.expander("💳 Nạp điểm / Mua gói bài đăng", expanded=False):
         st.markdown("**📦 Các gói bài đăng:**")
-        col_p1, col_p2, col_p3 = st.columns(3)
-        with col_p1:
-            if st.button("🎯 Gói 25 bài\n50,000 VNĐ", use_container_width=True, key="pkg25"):
-                st.info("Vui lòng chuyển khoản theo thông tin bên dưới và liên hệ Admin để xác nhận.")
-        with col_p2:
-            if st.button("🔥 Gói 50 bài\n100,000 VNĐ", use_container_width=True, key="pkg50"):
-                st.info("Vui lòng chuyển khoản theo thông tin bên dưới và liên hệ Admin để xác nhận.")
-        with col_p3:
-            if st.button("🚀 Gói 100 bài\n200,000 VNĐ", use_container_width=True, key="pkg100"):
-                st.info("Vui lòng chuyển khoản theo thông tin bên dưới và liên hệ Admin để xác nhận.")
+        if st.button("🎯 Gói 25 bài — 50,000 VNĐ", key="pkg25_side"):
+            st.info("Vui lòng chuyển khoản theo thông tin bên dưới và liên hệ Admin để xác nhận.")
+        if st.button("🔥 Gói 50 bài — 100,000 VNĐ", key="pkg50_side"):
+            st.info("Vui lòng chuyển khoản theo thông tin bên dưới và liên hệ Admin để xác nhận.")
+        if st.button("🚀 Gói 100 bài — 200,000 VNĐ", key="pkg100_side"):
+            st.info("Vui lòng chuyển khoản theo thông tin bên dưới và liên hệ Admin để xác nhận.")
         st.markdown("---")
-        st.markdown("**🏦 Thông tin chuyển khoản:**")
         st.markdown("""
-        - **Ngân hàng:** MB Bank (Ngân hàng TMCP Quân Đội)
-        - **Số tài khoản:** 0968335777
-        - **Chủ tài khoản:** NGUYEN VAN A
-        - **Nội dung chuyển khoản:** `NAP <username>` (vd: NAP admin)
-        """)
+        <div class="bank-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                <span style="font-weight:700;font-size:1rem;">🏦 MB Bank</span>
+                <span class="bank-badge">QUÂN ĐỘI</span>
+            </div>
+            <div style="font-size:1.05rem;font-weight:500;margin-bottom:4px;">STK: <strong>999937799</strong></div>
+            <div style="font-size:0.9rem;color:#cbd5e1;margin-bottom:8px;">Chủ TK: <strong>Lương Huỳnh Hiếu</strong></div>
+            <div style="background:rgba(255,255,255,0.08);border-radius:6px;padding:6px 10px;font-size:0.8rem;font-family:monospace;color:#93c5fd;">
+                Nội dung CK: NAP <username>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
         st.caption("⏳ Sau khi chuyển khoản, vui lòng liên hệ Admin để được cộng điểm trong vòng 5-10 phút.")
     st.markdown("---")
     st.markdown("""
