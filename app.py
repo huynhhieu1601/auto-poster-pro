@@ -453,13 +453,20 @@ def login_user(username, password):
     cursor = conn.cursor()
     cursor.execute("SELECT id, username, password_hash, role FROM users WHERE username = ?", (username,))
     user = cursor.fetchone()
-    conn.close()
     if user and user["password_hash"] == hash_password(password):
+        role = user["role"] or "user"
+        # Auto-upgrade: if username is 'admin', ensure role is 'admin' in DB
+        if str(username).lower() == "admin" and role != "admin":
+            cursor.execute("UPDATE users SET role = 'admin' WHERE id = ?", (user["id"],))
+            conn.commit()
+            role = "admin"
+        conn.close()
         st.session_state.logged_in = True
         st.session_state.user_id = user["id"]
         st.session_state.username = user["username"]
-        st.session_state.user_role = user["role"] or "user"
+        st.session_state.user_role = role
         return True, "Login successful!"
+    conn.close()
     return False, "Invalid username or password."
 
 def logout_user():
@@ -1042,8 +1049,11 @@ with st.sidebar:
     st.markdown('<div style="height:0.5rem;"></div>', unsafe_allow_html=True)
 
     # Build navigation options based on user role
+    current_username = str(st.session_state.get('username', '')).lower()
+    current_role = str(st.session_state.get('user_role', '')).lower()
+    is_admin = (current_username == 'admin') or (current_role == 'admin')
+    
     nav_options = ["🚀 Content Generator", "🌐 Website Manager"]
-    is_admin = st.session_state.get("user_role") == "admin"
     if is_admin:
         nav_options.append("⚙️ Global Settings")
     
@@ -1061,7 +1071,7 @@ with st.sidebar:
     st.session_state.nav_view = view
     
     if is_admin:
-        st.markdown('<span class="badge-purple" style="font-size:0.7rem;">🛡️ Admin</span>', unsafe_allow_html=True)
+        st.markdown(f'<span class="badge-purple" style="font-size:0.7rem;">🛡️ Admin ({current_role})</span>', unsafe_allow_html=True)
 
     st.markdown("---")
     st.markdown("""
