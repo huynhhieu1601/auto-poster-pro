@@ -38,45 +38,81 @@ st.set_page_config(
 )
 
 # ============================================================
-# MODERN UI — TAILWIND CSS + CUSTOM FIXES
+# MODERN UI — LARKEYWORD WHITE CARD STYLE
 # ============================================================
 st.markdown("""
-<script src="https://cdn.tailwindcss.com"></script>
 <style>
-    /* --- TAILWIND BASE RESET --- */
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
     html, body, [class*="st-"] {
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     }
 
-    /* --- FIX SIDEBAR WIDTH & TEXT WRAPPING --- */
+    /* --- SIDEBAR — LIGHT GRAYISH BACKGROUND --- */
     [data-testid="stSidebar"] {
-        min-width: 280px !important;
-        max-width: 340px !important;
-        background: linear-gradient(180deg, #1E1B4B 0%, #312E81 100%) !important;
-        border-right: 1px solid rgba(255,255,255,0.05) !important;
+        background-color: #f8fafc !important;
+        min-width: 340px !important;
+        max-width: 360px !important;
+        border-right: 1px solid #e2e8f0 !important;
+    }
+    [data-testid="stSidebar"] > div:first-child {
+        padding: 1.5rem 1rem !important;
     }
     [data-testid="stSidebar"] * {
         word-break: normal !important;
         white-space: normal !important;
-        overflow-wrap: break-word !important;
     }
-    [data-testid="stSidebar"] p,
-    [data-testid="stSidebar"] span,
-    [data-testid="stSidebar"] label,
-    [data-testid="stSidebar"] .stMarkdown {
-        color: #E0E7FF !important;
-        white-space: normal !important;
-        word-break: normal !important;
+
+    /* --- FLOATING WHITE NAV CARD --- */
+    .larkeyword-card {
+        background-color: #ffffff;
+        border-radius: 24px;
+        padding: 20px 16px;
+        box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.05);
+        border: 1px solid #e2e8f0;
+        margin-bottom: 16px;
     }
-    /* Prevent vertical text in radio buttons */
-    [data-testid="stSidebar"] .stRadio label,
-    [data-testid="stSidebar"] [data-baseweb="radio"] label {
-        writing-mode: horizontal-tb !important;
-        text-orientation: mixed !important;
-        white-space: nowrap !important;
-        display: flex !important;
-        align-items: center !important;
+
+    /* --- RADIO MENU — LARKEYWORD NAV STYLE --- */
+    [data-testid="stSidebar"] div[role="radiogroup"] {
+        gap: 8px;
+    }
+    [data-testid="stSidebar"] div[role="radiogroup"] label {
+        background-color: transparent !important;
+        border-radius: 12px !important;
+        padding: 10px 16px !important;
+        border: 1px solid transparent !important;
+        transition: all 0.2s ease !important;
+        font-weight: 500 !important;
+        color: #334155 !important;
+        cursor: pointer !important;
+    }
+    [data-testid="stSidebar"] div[role="radiogroup"] label:hover {
+        background-color: #f1f5f9 !important;
+    }
+    [data-testid="stSidebar"] div[role="radiogroup"] label[data-checked="true"] {
+        background-color: #ccfbf1 !important;
+        color: #0f766e !important;
+        font-weight: 700 !important;
+    }
+    [data-testid="stSidebar"] div[role="radiogroup"] label > div:first-child {
+        display: none !important;
+    }
+
+    /* --- BALANCE & BANK CARDS --- */
+    .balance-box {
+        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+        color: #ffffff;
+        border-radius: 16px;
+        padding: 16px;
+        margin-bottom: 12px;
+    }
+    .bank-box {
+        background: #f8fafc;
+        border: 1px dashed #cbd5e1;
+        border-radius: 14px;
+        padding: 14px;
+        font-size: 13px;
+        color: #334155;
     }
 
     /* --- TOP HEADER BANNER --- */
@@ -91,59 +127,6 @@ st.markdown("""
     .header-banner h1 { font-size: 1.75rem; font-weight: 700; color: white !important; }
     .header-banner p { font-size: 0.9rem; opacity: 0.9; color: rgba(255,255,255,0.85) !important; }
 
-    /* --- TAILWIND CARD WRAPPER --- */
-    .card-box {
-        background: #ffffff;
-        border: 1px solid #e2e8f0;
-        border-radius: 0.75rem;
-        padding: 1.25rem;
-        box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
-        margin-bottom: 1rem;
-    }
-
-    /* --- SIDEBAR COMPONENTS --- */
-    .sidebar-brand { font-size: 1.15rem; font-weight: 700; color: #A78BFA !important; }
-    .sidebar-user-card {
-        background: rgba(255,255,255,0.06);
-        border-radius: 12px;
-        padding: 1rem;
-        margin: 0.5rem 0;
-        border: 1px solid rgba(255,255,255,0.08);
-    }
-    .sidebar-avatar {
-        width: 40px; height: 40px; border-radius: 10px;
-        background: linear-gradient(135deg, #7C3AED, #A78BFA);
-        display: flex; align-items: center; justify-content: center;
-        font-size: 1.1rem; font-weight: 700; color: white;
-    }
-    .sidebar-status {
-        display: inline-block; width: 8px; height: 8px;
-        border-radius: 50%; background: #10B981; margin-right: 4px;
-    }
-    .sidebar-info-box {
-        background: rgba(124, 58, 237, 0.12);
-        border: 1px solid rgba(124, 58, 237, 0.2);
-        border-radius: 12px; padding: 0.75rem 1rem;
-        font-size: 0.8rem; color: #C7D2FE; margin-top: 1rem;
-    }
-    .bank-card {
-        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-        border: 1px solid #334155;
-        border-radius: 12px;
-        padding: 16px;
-        color: #ffffff;
-        margin-top: 10px;
-        margin-bottom: 15px;
-    }
-    .bank-badge {
-        background: #0284c7;
-        color: white;
-        font-size: 11px;
-        font-weight: bold;
-        padding: 2px 8px;
-        border-radius: 4px;
-    }
-
     /* --- BUTTONS --- */
     .stButton > button {
         width: 100%; border-radius: 0.5rem; font-weight: 600;
@@ -157,10 +140,8 @@ st.markdown("""
     .stButton > button[kind="primary"]:hover {
         transform: translateY(-1px) !important;
         box-shadow: 0 6px 20px rgba(124, 58, 237, 0.4) !important;
-        background: linear-gradient(135deg, #8B5CF6, #7C3AED) !important;
     }
     .stButton > button[kind="secondary"] { background: #F3F4F6 !important; color: #374151 !important; }
-    .stButton > button[kind="secondary"]:hover { background: #E5E7EB !important; }
 
     /* --- INPUTS --- */
     .stTextInput > div > div > input,
@@ -170,17 +151,13 @@ st.markdown("""
     }
     .stTextInput > div > div > input:focus,
     .stTextArea > div > div > textarea:focus {
-        border-color: #7C3AED !important; box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.1) !important;
+        border-color: #0d9488 !important; box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.1) !important;
     }
 
     /* --- BADGES --- */
     .badge-success { display: inline-block; background: #D1FAE5; color: #065F46; padding: 0.15rem 0.65rem; border-radius: 20px; font-size: 0.75rem; font-weight: 600; }
     .badge-purple { display: inline-block; background: #EDE9FE; color: #5B21B6; padding: 0.15rem 0.65rem; border-radius: 20px; font-size: 0.75rem; font-weight: 600; }
     .badge-amber { display: inline-block; background: #FEF3C7; color: #92400E; padding: 0.15rem 0.65rem; border-radius: 20px; font-size: 0.75rem; font-weight: 600; }
-
-    /* --- SELECT / RADIO --- */
-    .stSelectbox > div > div { border-radius: 10px !important; }
-    [data-testid="stRadio"] > div { gap: 0.5rem; }
 
     /* --- DATAFRAME --- */
     [data-testid="stDataFrame"] table { border-collapse: separate; border-spacing: 0; border-radius: 12px; overflow: hidden; }
@@ -191,25 +168,18 @@ st.markdown("""
     }
     [data-testid="stDataFrame"] tbody td { border-bottom: 1px solid #F1F5F9 !important; padding: 0.75rem 1rem !important; font-size: 0.85rem !important; }
 
-    /* --- MISC --- */
-    [data-testid="stExpander"] { border-radius: 12px !important; border: 1px solid #E5E7EB !important; box-shadow: none !important; }
+    /* --- LOGIN CARD --- */
     .login-card {
         max-width: 420px; margin: 3rem auto; background: white; border-radius: 20px;
         padding: 2.5rem; box-shadow: 0 20px 60px -20px rgba(0,0,0,0.1); border: 1px solid #F3F4F6;
     }
     .login-card h2 {
-        background: linear-gradient(135deg, #7C3AED, #6D28D9);
+        background: linear-gradient(135deg, #0d9488, #0f766e);
         -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 800; font-size: 1.5rem;
     }
-    .website-row {
-        background: white; border: 1px solid #F3F4F6; border-radius: 12px; padding: 1rem 1.25rem;
-        margin-bottom: 0.5rem; display: flex; align-items: center; justify-content: space-between; transition: box-shadow 0.2s;
-    }
-    .website-row:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
-    .section-divider { height: 1px; background: linear-gradient(90deg, transparent, #E5E7EB, transparent); margin: 1.5rem 0; }
-    .block-container { padding-top: 2rem; }
+
     .stTabs [data-baseweb="tab"] { font-weight: 500 !important; padding: 0.6rem 1.25rem !important; border-radius: 10px 10px 0 0 !important; }
-    .stTabs [aria-selected="true"] { color: #7C3AED !important; border-bottom: 3px solid #7C3AED !important; }
+    .stTabs [aria-selected="true"] { color: #0d9488 !important; border-bottom: 3px solid #0d9488 !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -991,75 +961,77 @@ load_global_settings()
 uid = st.session_state.user_id
 
 # ============================================================
-# SIDEBAR NAVIGATION
+# SIDEBAR — LARKEYWORD FLOATING CARD STYLE
 # ============================================================
 with st.sidebar:
-    st.markdown('<p class="sidebar-brand">⚡ WP Auto-Poster <span style="font-weight:400;font-size:0.7rem;background:rgba(124,58,237,0.3);padding:2px 6px;border-radius:4px;">PRO</span></p>', unsafe_allow_html=True)
-    st.markdown(f"""
-    <div class="sidebar-user-card">
-        <div style="display:flex;align-items:center;gap:0.75rem;">
-            <div class="sidebar-avatar">{st.session_state.username[0].upper()}</div>
-            <div>
-                <div style="font-weight:600;color:#E0E7FF;">{st.session_state.username}</div>
-                <div style="font-size:0.75rem;color:#A5B4FC;"><span class="sidebar-status"></span>Online</div>
-            </div>
+    # Logo / App Header
+    st.markdown("""
+    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px; padding-left: 8px;">
+        <div style="background: #0d9488; color: white; padding: 10px; border-radius: 14px; font-weight: bold;">⚡</div>
+        <div>
+            <h3 style="margin:0; font-size: 18px; font-weight: 800; color: #0f172a;">AutoPoster <span style="font-size: 11px; background: #ccfbf1; color: #0f766e; padding: 2px 6px; border-radius: 6px;">PRO</span></h3>
+            <p style="margin:0; font-size: 12px; color: #64748b;">Công cụ tự động hóa nội dung</p>
         </div>
     </div>
     """, unsafe_allow_html=True)
-    st.markdown('<div style="height:0.5rem;"></div>', unsafe_allow_html=True)
+
+    # Admin/role setup
     current_username = str(st.session_state.get('username', '')).lower()
     current_role = str(st.session_state.get('user_role', '')).lower()
     is_admin = (current_username == 'admin') or (current_role == 'admin')
-    nav_options = ["🚀 Content Generator", "🌐 Website Manager"]
+
+    # Floating Card — Navigation
+    st.markdown('<div class="larkeyword-card">', unsafe_allow_html=True)
+    menu_options = ["🚀 Content Generator", "🌐 Website Manager"]
     if is_admin:
-        nav_options.append("⚙️ Global Settings")
+        menu_options.append("⚙️ Global Settings")
     if not is_admin and st.session_state.nav_view == "⚙️ Global Settings":
         st.session_state.nav_view = "🚀 Content Generator"
     view = st.radio(
-        "", nav_options, index=0,
-        format_func=lambda x: f"  {x}",
-        key="nav_radio", label_visibility="collapsed"
+        "Navigation", menu_options, label_visibility="collapsed"
     )
     st.session_state.nav_view = view
-    if is_admin:
-        st.markdown(f'<span class="badge-purple" style="font-size:0.7rem;">🛡️ Admin ({current_role})</span>', unsafe_allow_html=True)
-    st.markdown("---")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # Balance Card
     user_credits = get_user_credits(uid)
     cost_per_post = get_cost_per_post()
-    st.sidebar.metric("💳 Số dư tài khoản", f"{user_credits:,.0f} VNĐ")
-    st.sidebar.caption(f"Chi phí: {cost_per_post:,.0f} VNĐ / bài viết thành công")
-    with st.expander("💳 Nạp điểm / Mua gói bài đăng", expanded=False):
-        st.markdown("**📦 Các gói bài đăng:**")
-        if st.button("🎯 Gói 25 bài — 50,000 VNĐ", key="pkg25_side"):
-            st.info("Vui lòng chuyển khoản theo thông tin bên dưới và liên hệ Admin để xác nhận.")
-        if st.button("🔥 Gói 50 bài — 100,000 VNĐ", key="pkg50_side"):
-            st.info("Vui lòng chuyển khoản theo thông tin bên dưới và liên hệ Admin để xác nhận.")
-        if st.button("🚀 Gói 100 bài — 200,000 VNĐ", key="pkg100_side"):
-            st.info("Vui lòng chuyển khoản theo thông tin bên dưới và liên hệ Admin để xác nhận.")
-        st.markdown("---")
-        st.markdown("""
-        <div class="bank-card">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                <span style="font-weight:700;font-size:1rem;">🏦 MB Bank</span>
-                <span class="bank-badge">QUÂN ĐỘI</span>
-            </div>
-            <div style="font-size:1.05rem;font-weight:500;margin-bottom:4px;">STK: <strong>999937799</strong></div>
-            <div style="font-size:0.9rem;color:#cbd5e1;margin-bottom:8px;">Chủ TK: <strong>Lương Huỳnh Hiếu</strong></div>
-            <div style="background:rgba(255,255,255,0.08);border-radius:6px;padding:6px 10px;font-size:0.8rem;font-family:monospace;color:#93c5fd;">
-                Nội dung CK: NAP <username>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        st.caption("⏳ Sau khi chuyển khoản, vui lòng liên hệ Admin để được cộng điểm trong vòng 5-10 phút.")
-    st.markdown("---")
-    st.markdown("""
-    <div class="sidebar-info-box">
-        <strong>💡 Tip</strong><br>
-        Add your websites in <em>Website Manager</em>, then use <em>Content Generator</em> to create AI-powered posts.
+    st.markdown(f"""
+    <div class="balance-box">
+        <div style="font-size: 11px; color: #94a3b8; text-transform: uppercase; font-weight: 600;">Số dư hiện tại</div>
+        <div style="font-size: 22px; font-weight: 800; color: #34d399; margin: 4px 0;">{user_credits:,.0f} VNĐ</div>
+        <div style="font-size: 11px; color: #cbd5e1;">Chi phí: 2,000 VNĐ / bài đăng</div>
     </div>
     """, unsafe_allow_html=True)
-    st.markdown('<div style="height:1rem;"></div>', unsafe_allow_html=True)
-    if st.button("🚪 Logout", use_container_width=True):
+
+    # Bank Transfer Card
+    st.markdown(f"""
+    <div class="bank-box">
+        <div style="font-weight: 700; color: #0f172a; margin-bottom: 6px; display: flex; justify-content: space-between;">
+            <span>🏦 MB BANK</span>
+            <span style="color: #0284c7; font-size: 11px;">Chuyển khoản 24/7</span>
+        </div>
+        <div>STK: <b style="color: #0284c7; font-size: 15px;">999937799</b></div>
+        <div>Chủ TK: <b>LƯƠNG HUỲNH HIẾU</b></div>
+        <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid #e2e8f0; font-size: 12px;">
+            Nội dung CK: <b style="color: #059669;">NAP {st.session_state.get('username', 'user')}</b>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Recharge Packages
+    with st.expander("💳 Mua lượt / Nạp điểm", expanded=False):
+        st.markdown("**📦 Các gói bài đăng:**")
+        if st.button("🎯 Gói 25 bài — 50,000 VNĐ", key="pkg25_lk"):
+            st.info("Vui lòng chuyển khoản theo thông tin bên trên và liên hệ Admin để xác nhận.")
+        if st.button("🔥 Gói 50 bài — 100,000 VNĐ", key="pkg50_lk"):
+            st.info("Vui lòng chuyển khoản theo thông tin bên trên và liên hệ Admin để xác nhận.")
+        if st.button("🚀 Gói 100 bài — 200,000 VNĐ", key="pkg100_lk"):
+            st.info("Vui lòng chuyển khoản theo thông tin bên trên và liên hệ Admin để xác nhận.")
+        st.caption("⏳ Sau khi chuyển khoản, Admin sẽ cộng điểm trong 5-10 phút.")
+
+    st.markdown("---")
+    if st.button("🚪 Đăng xuất", use_container_width=True):
         logout_user(); st.rerun()
 
 # ============================================================
