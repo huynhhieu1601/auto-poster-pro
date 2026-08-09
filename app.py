@@ -333,10 +333,10 @@ def get_cost_per_post():
     conn.close()
     if row and row["value"]:
         try:
-            return float(row["value"])
+            return int(float(row["value"]))
         except (ValueError, TypeError):
             pass
-    return 2000.0
+    return 2000
 
 # ============================================================
 # SESSION STATE INITIALIZATION
@@ -1312,7 +1312,7 @@ elif st.session_state.nav_view == "⚙️ Global Settings":
             st.info("No SerpApi keys configured. Add keys in the AI Engine tab above.")
     st.markdown("---")
     st.markdown("#### 💰 Quản lý Nạp điểm & Chi phí")
-    cost_per_post_val = st.number_input("Chi phí mỗi bài đăng (VNĐ)", value=get_cost_per_post(), min_value=0, step=500)
+    cost_per_post_val = st.number_input("Chi phí mỗi bài đăng (VNĐ)", value=int(get_cost_per_post()), min_value=0, step=500)
     save_user_setting(uid, "cost_per_post", str(int(cost_per_post_val)))
     conn = get_db()
     cursor = conn.cursor()
