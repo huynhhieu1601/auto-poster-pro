@@ -304,13 +304,14 @@ def add_credits(user_id, amount, description="Nạp điểm"):
     cursor = conn.cursor()
     cursor.execute("UPDATE users SET credits = COALESCE(credits, 0) + ? WHERE id = ?", (amount, user_id))
     cursor.execute(
-        "INSERT INTO credit_transactions (user_id, amount, type, description) VALUES (?, ?, 'credit', ?)",
+        "INSERT INTO credit_transactions (user_id, amount, type, description) VALUES (?, ?, 'RECHARGE', ?)",
         (user_id, amount, description)
     )
     conn.commit()
     conn.close()
 
-def deduct_user_credit(user_id, cost):
+def deduct_user_credit(user_id, cost=2000):
+    """Deduct EXACTLY cost VND from user balance. Returns True if successful."""
     current = get_user_credits(user_id)
     if current < cost:
         return False
@@ -318,25 +319,27 @@ def deduct_user_credit(user_id, cost):
     cursor = conn.cursor()
     cursor.execute("UPDATE users SET credits = credits - ? WHERE id = ?", (cost, user_id))
     cursor.execute(
-        "INSERT INTO credit_transactions (user_id, amount, type, description) VALUES (?, ?, 'debit', ?)",
-        (user_id, cost, f"Thanh toán bài viết: {cost:,.0f} VNĐ")
+        "INSERT INTO credit_transactions (user_id, amount, type, description) VALUES (?, -2000, 'DEDUCT', 'Đăng bài viết thành công')",
+        (user_id,)
     )
     conn.commit()
     conn.close()
     return True
 
 def get_cost_per_post():
+    """Cost per post is strictly fixed at 2,000 VND."""
+    return 2000
+
+def get_credit_transactions(user_id, limit=20):
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT value FROM user_settings WHERE user_id IN (SELECT id FROM users WHERE role='admin' LIMIT 1) AND key='cost_per_post'")
-    row = cursor.fetchone()
+    cursor.execute(
+        "SELECT amount, type, description, created_at FROM credit_transactions WHERE user_id = ? ORDER BY id DESC LIMIT ?",
+        (user_id, limit)
+    )
+    rows = cursor.fetchall()
     conn.close()
-    if row and row["value"]:
-        try:
-            return int(float(row["value"]))
-        except (ValueError, TypeError):
-            pass
-    return 2000
+    return [dict(r) for r in rows]
 
 # ============================================================
 # SESSION STATE INITIALIZATION
@@ -364,8 +367,14 @@ def register_user(username, password, role='user'):
     conn = get_db()
     cursor = conn.cursor()
     try:
-        cursor.execute("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+        cursor.execute("INSERT INTO users (username, password_hash, role, credits) VALUES (?, ?, ?, 2000)",
                        (username, hash_password(password), role))
+        user_id = cursor.lastrowid
+        # Signup bonus: 1 free post
+        cursor.execute(
+            "INSERT INTO credit_transactions (user_id, amount, type, description) VALUES (?, 2000, 'BONUS', 'Tặng 1 bài viết trải nghiệm')",
+            (user_id,)
+        )
         conn.commit()
         return True, "Registration successful!"
     except sqlite3.IntegrityError:
@@ -1140,6 +1149,27 @@ if st.session_state.nav_view == "🚀 Content Generator":
                     with st.spinner("Scanning sheet..."):
                         count = process_sheet_for_user(uid)
                         st.success(f"Processed {count} rows!") if count > 0 else st.info("No pending rows found.")
+    st.markdown("---")
+    st.markdown("### 📜 Lịch sử Giao dịch")
+    txn_data = get_credit_transactions(uid)
+    if txn_data:
+        txn_rows = []
+        for t in txn_data:
+            amt = t["amount"]
+            ttype = t["type"]
+            desc = t["description"]
+            ts = t["created_at"]
+            if amt > 0:
+                badge = '<span class="badge-success">+{:.0f} VNĐ</span>'.format(amt)
+            else:
+                badge = '<span class="badge-amber">{:.0f} VNĐ</span>'.format(amt)
+            txn_rows.append({"Thời gian": ts, "Loại": ttype, "Mô tả": desc, "Số tiền": badge})
+        st.markdown(
+            pd.DataFrame(txn_rows).to_html(index=False, escape=False),
+            unsafe_allow_html=True
+        )
+    else:
+        st.info("Chưa có giao dịch nào.")
     st.markdown("---")
     st.markdown("### 📋 Execution History")
     hist = load_history(uid)
