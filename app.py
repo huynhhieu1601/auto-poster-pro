@@ -512,14 +512,38 @@ def load_history(user_id):
 # ============================================================
 # CORE GENERATION HELPERS (Parameterized)
 # ============================================================
-def generate_text(prompt, system_prompt, api_base, api_key, project_id, model, temperature=0.7):
-    client = OpenAI(base_url=api_base, api_key=api_key,
-                    default_headers={"x-goog-project-id": project_id})
-    r = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}],
-        temperature=temperature)
-    return r.generate_text()
+def generate_text(
+    prompt,
+    system_prompt,
+    api_base,
+    api_key,
+    project_id,
+    model,
+    temperature=0.7,
+):
+  if "localhost" in api_base or "127.0.0.1" in api_base:
+    raise ConnectionError(
+        "API Base URL đang để localhost. Vui lòng cập nhật URL Ngrok HTTPS trên"
+        " Streamlit Cloud."
+    )
+
+  client = OpenAI(
+      base_url=api_base,
+      api_key=api_key,
+      default_headers={"x-goog-project-id": project_id},
+  )
+
+  r = client.chat.completions.create(
+      model=model,
+      messages=[
+          {"role": "system", "content": system_prompt},
+          {"role": "user", "content": prompt},
+      ],
+      temperature=temperature,
+  )
+
+  # ALWAYS PARSE THROUGH SAFE PARSER
+  return parse_ai_response(r)
 
 def generate_image(prompt, api_base, api_key, project_id, model, n=1, size="1024x1024"):
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json",
