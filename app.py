@@ -410,12 +410,33 @@ def init_db():
     except sqlite3.OperationalError:
         pass
 
+    # Add credits column to users if not exists
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN credits REAL DEFAULT 0")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
+    # Create credit transactions table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS credit_transactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            amount REAL NOT NULL,
+            type TEXT NOT NULL,
+            description TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
+    """)
+    conn.commit()
+
     # Auto-create default admin account if no users exist
     cursor.execute("SELECT COUNT(*) as cnt FROM users")
     if cursor.fetchone()["cnt"] == 0:
         cursor.execute(
-            "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-            ("admin", hashlib.sha256("admin123".encode()).hexdigest(), "admin")
+            "INSERT INTO users (username, password_hash, role, credits) VALUES (?, ?, ?, ?)",
+            ("admin", hashlib.sha256("admin123".encode()).hexdigest(), "admin", 100000)
         )
         conn.commit()
 
@@ -1489,6 +1510,47 @@ elif st.session_state.nav_view == "⚙️ Global Settings":
                 )
         else:
             st.info("No SerpApi keys configured. Add keys in the AI Engine tab above.")
+
+    st.markdown("---")
+
+    # --- ADMIN CREDIT MANAGEMENT ---
+    st.markdown("#### 💰 Quản lý Nạp điểm & Chi phí")
+    cost_per_post_val = st.number_input("Chi phí mỗi bài đăng (VNĐ)", value=get_cost_per_post(), min_value=0, step=500)
+    save_user_setting(uid, "cost_per_post", str(int(cost_per_post_val)))
+    
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, username, credits FROM users ORDER BY id")
+    all_users = cursor.fetchall()
+    conn.close()
+    
+    if all_users:
+        col_usr, col_amt, col_btn = st.columns([2, 1, 1])
+        with col_usr:
+            selected_user_idx = st.selectbox(
+                "Chọn User",
+                options=range(len(all_users)),
+                format_func=lambda i: f"{all_users[i]['username']} (💳 {all_users[i]['credits']:,.0f} VNĐ)"
+            )
+            selected_user = all_users[selected_user_idx]
+        with col_amt:
+            credit_amount = st.number_input("Số điểm", value=10000, min_value=1000, step=5000)
+        with col_btn:
+            st.markdown("<div style='height:1.5rem;'></div>", unsafe_allow_html=True)
+            if st.button("➕ Nạp điểm", use_container_width=True, type="primary"):
+                add_credits(selected_user["id"], credit_amount, f"Admin nạp {credit_amount:,.0f} VNĐ")
+                st.success(f"✅ Đã nạp {credit_amount:,.0f} VNĐ cho {selected_user['username']}!")
+                st.rerun()
+        
+        # Credit balances table
+        st.markdown("---")
+        balance_data = []
+        for u in all_users:
+            balance_data.append({
+                "Username": u["username"],
+                "Balance (VNĐ)": f"{u['credits']:,.0f}",
+            })
+        st.table(pd.DataFrame(balance_data))
 
     st.markdown("---")
     if st.button("💾 Save All Settings", use_container_width=True, type="primary"):
