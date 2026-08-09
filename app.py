@@ -597,10 +597,79 @@ def generate_image(prompt, api_base, api_key, project_id, model, n=1, size="1024
     return r.json().get("data", [])
 
 # ============================================================
-# SERPAPI
+# SERPAPI — MULTI-KEY WITH USAGE TRACKING & ROTATION
 # ============================================================
-def get_google_top10_outlines(keyword, serpapi_key):
+def get_serpapi_keys():
+    """Get list of SerpApi keys from session state. Returns [] if none."""
+    keys_str = st.session_state.get("serpapi_keys", "")
+    if not keys_str:
+        return []
+    return [k.strip() for k in keys_str.split("\n") if k.strip()]
+
+def check_serpapi_account(api_key):
+    """
+    Check SerpApi account usage for a given API key.
+    Returns dict: {valid, plan, searches_per_month, plan_searches_left, total_searches, error}
+    """
+    try:
+        r = requests.get(f"https://serpapi.com/account?api_key={api_key}", timeout=10)
+        if r.status_code != 200:
+            return {"valid": False, "plan": "N/A", "searches_per_month": 0, 
+                    "plan_searches_left": 0, "total_searches": 0, 
+                    "error": f"HTTP {r.status_code}"}
+        data = r.json()
+        plan = data.get("plan_name", "Unknown")
+        searches_per_month = data.get("plan_searches_per_month", 0)
+        plan_searches_left = data.get("plan_searches_left", 0)
+        total_searches = data.get("total_searches", 0)
+        return {
+            "valid": True,
+            "plan": plan,
+            "searches_per_month": searches_per_month,
+            "plan_searches_left": plan_searches_left,
+            "total_searches": total_searches,
+            "error": None
+        }
+    except Exception as e:
+        return {"valid": False, "plan": "N/A", "searches_per_month": 0,
+                "plan_searches_left": 0, "total_searches": 0, "error": str(e)}
+
+def get_active_serpapi_key():
+    """
+    Iterate through all SerpApi keys and return the first one with remaining searches.
+    Raises RuntimeError if all keys are exhausted or invalid.
+    Returns (api_key, account_info_dict).
+    """
+    keys = get_serpapi_keys()
+    if not keys:
+        raise RuntimeError("No SerpApi keys configured. Please add keys in Global Settings.")
+    
+    errors = []
+    for key in keys:
+        info = check_serpapi_account(key)
+        if info["valid"] and info["plan_searches_left"] > 0:
+            return key, info
+        elif info["valid"]:
+            errors.append(f"Key {key[:8]}... has 0 searches left")
+        else:
+            errors.append(f"Key {key[:8]}... is invalid: {info.get('error', 'Unknown')}")
+    
+    raise RuntimeError(
+        f"All SerpApi keys have exceeded their monthly quota or are invalid.\n"
+        + "\n".join(errors)
+    )
+
+def get_google_top10_outlines(keyword, serpapi_key=None):
+    """
+    Fetch Top 10 Google organic results via SerpApi.
+    If serpapi_key is None, uses get_active_serpapi_key() for automatic rotation.
+    """
     url = "https://serpapi.com/search.json"
+    if serpapi_key is None:
+        try:
+            serpapi_key, _ = get_active_serpapi_key()
+        except RuntimeError:
+            return []
     try:
         r = requests.get(url, params={"q": keyword, "location": "Vietnam", "hl": "vi", "gl": "vn", "api_key": serpapi_key, "num": 10}, timeout=15)
         r.raise_for_status()
@@ -894,7 +963,8 @@ def process_sheet_for_user(user_id):
         pid = s.get("local_project_id", LOCAL_PROJECT_ID)
         tm = s.get("local_model", LOCAL_MODEL)
         im = s.get("local_image_model", LOCAL_IMAGE_MODEL)
-        sk = s.get("serpapi_key", DEFAULT_SERPAPI_KEY)
+        # Try multi-key serpapi_keys first, fallback to single serpapi_key
+        serpapi_keys_str = s.get("serpapi_keys", s.get("serpapi_key", DEFAULT_SERPAPI_KEY))
         proc = 0
         for ri in range(1, len(av)):
             row = av[ri]
@@ -945,7 +1015,7 @@ def process_sheet_for_user(user_id):
                 wp_username=site["wp_username"], wp_password=site["wp_app_password"],
                 woo_ck=site["woo_ck"], woo_cs=site["woo_cs"], api_base=ab, api_key=ak,
                 project_id=pid, text_model=tm, image_model=im, content_type=cv,
-                schedule_dt=sdt, serpapi_key=sk)
+                schedule_dt=sdt, serpapi_key=None)  # None = auto-rotate
             if err is None and link:
                 ws.update_cell(ri + 1, ix_st + 1, "Success"); ws.update_cell(ri + 1, ix_lnk + 1, link)
                 save_history_entry(user_id, site["site_name"], kv, sdt.strftime("%Y-%m-%d %H:%M"),
@@ -1020,7 +1090,7 @@ def load_global_settings():
         s = get_all_user_settings(st.session_state.user_id)
         for k, d in [("local_api_base", LOCAL_API_BASE), ("local_api_key", LOCAL_API_KEY),
                      ("local_project_id", LOCAL_PROJECT_ID), ("local_model", LOCAL_MODEL),
-                     ("local_image_model", LOCAL_IMAGE_MODEL), ("serpapi_key", DEFAULT_SERPAPI_KEY),
+                     ("local_image_model", LOCAL_IMAGE_MODEL), ("serpapi_keys", DEFAULT_SERPAPI_KEY),
                      ("gsheet_url", ""), ("gsheet_sa_json", "")]:
             if k not in st.session_state or not st.session_state.get(k):
                 st.session_state[k] = s.get(k, d)
@@ -1124,15 +1194,14 @@ if st.session_state.nav_view == "🚀 Content Generator":
                 else:
                     with st.spinner("Analyzing Top 10 Google results + generating outline..."):
                         try:
-                            serp_key = st.session_state.get("serpapi_key", DEFAULT_SERPAPI_KEY)
+                            # Use SerpApi auto-rotation for outline generation
                             competitor_context = ""
-                            if serp_key:
-                                try:
-                                    t10 = get_google_top10_outlines(keyword, serp_key)
-                                    if t10:
-                                        competitor_context = "\n".join(f"{i}. {r['title']} — {r['snippet'][:120]}" for i, r in enumerate(t10, 1))
-                                        st.info(f"📊 Analyzed {len(t10)} Top 10 results.")
-                                except Exception: pass
+                            try:
+                                t10 = get_google_top10_outlines(keyword, serpapi_key=None)
+                                if t10:
+                                    competitor_context = "\n".join(f"{i}. {r['title']} — {r['snippet'][:120]}" for i, r in enumerate(t10, 1))
+                                    st.info(f"📊 Analyzed {len(t10)} Top 10 results.")
+                            except Exception: pass
                             bp = selected_site.get("brand_voice_prompt", "You are an expert SEO writer.")
                             ctl = "blog post" if content_type == "post" else "WooCommerce product description"
                             op = (f'Analyze Top 10 Google results for "{keyword}":\n{competitor_context}\nCreate an all-inclusive SEO outline (H2, H3) for a {ctl} that covers all key points and outperforms them. Target: {word_count} words. Output H2/H3, no JSON.'
@@ -1161,7 +1230,6 @@ if st.session_state.nav_view == "🚀 Content Generator":
                     with st.spinner(f"Generating {content_type}..."):
                         try:
                             bp = selected_site.get("brand_voice_prompt", "You are an expert SEO writer.")
-                            serp_key = st.session_state.get("serpapi_key", DEFAULT_SERPAPI_KEY)
                             dt = datetime.combine(sched_date, sched_time)
                             _, _, link, _, err = run_full_pipeline(
                                 keyword=keyword, brand_voice_prompt=bp, word_count=word_count,
@@ -1173,7 +1241,7 @@ if st.session_state.nav_view == "🚀 Content Generator":
                                 project_id=st.session_state.get("local_project_id", LOCAL_PROJECT_ID),
                                 text_model=st.session_state.get("local_model", LOCAL_MODEL),
                                 image_model=st.session_state.get("local_image_model", LOCAL_IMAGE_MODEL),
-                                content_type=content_type, schedule_dt=dt, serpapi_key=serp_key)
+                                content_type=content_type, schedule_dt=dt, serpapi_key=None)  # auto-rotate
                             if err is None and link:
                                 st.success(f"✅ Published to {selected_site_name}!")
                                 st.markdown(f"[View {content_type.capitalize()}]({link})")
@@ -1334,9 +1402,16 @@ elif st.session_state.nav_view == "⚙️ Global Settings":
         with c2:
             ltm = st.text_input("Text Model", value=st.session_state.get("local_model", LOCAL_MODEL))
             lim = st.text_input("Image Model", value=st.session_state.get("local_image_model", LOCAL_IMAGE_MODEL))
-            sk_ = st.text_input("SerpApi Key", value=st.session_state.get("serpapi_key", DEFAULT_SERPAPI_KEY), type="password")
+            st.markdown("##### SerpApi Keys (One per line)")
+            sk_ = st.text_area(
+                "SerpApi Keys",
+                value=st.session_state.get("serpapi_keys", DEFAULT_SERPAPI_KEY),
+                height=100,
+                placeholder="Enter one API key per line...",
+                help="Add multiple SerpApi keys for automatic load balancing and failover."
+            )
         for k, v in [("local_api_base", lab), ("local_api_key", lak), ("local_project_id", lpi),
-                      ("local_model", ltm), ("local_image_model", lim), ("serpapi_key", sk_)]:
+                      ("local_model", ltm), ("local_image_model", lim), ("serpapi_keys", sk_)]:
             st.session_state[k] = v; save_user_setting(uid, k, v)
 
     with tab_gsheet:
@@ -1358,6 +1433,52 @@ elif st.session_state.nav_view == "⚙️ Global Settings":
         st.markdown("**Expected Sheet Columns (10 cols):**")
         st.code("A: Tên Website | B: Từ khoá chính | C: Loại nội dung | D: Prompt |\nE: Số từ viết | F: Ngày đăng | G: Giờ đăng | H: Trạng thái |\nI: Link bài viết | J: STT")
         st.caption("Worker scans every 1 minute. Future-dated rows wait until scheduled.")
+
+        # --- SERPAPI USAGE DASHBOARD ---
+        st.markdown("---")
+        st.markdown("#### 📊 SerpApi Usage Dashboard")
+        if st.button("🔄 Refresh SerpApi Usage", use_container_width=True):
+            st.rerun()
+        
+        keys_list = get_serpapi_keys()
+        if keys_list:
+            rows = []
+            for key in keys_list:
+                info = check_serpapi_account(key)
+                prefix = key[:12] + "..." if len(key) > 12 else key
+                if info["valid"]:
+                    left = info["plan_searches_left"]
+                    total = info["searches_per_month"]
+                    used = total - left if total > 0 else 0
+                    status = "✅ Active" if left > 0 else "⚠️ Exhausted"
+                    status_badge = '<span class="badge-success">✅ Active</span>' if left > 0 else '<span class="badge-amber">⚠️ Exhausted</span>'
+                    rows.append({
+                        "Key": prefix,
+                        "Plan": info["plan"],
+                        "Limit": f"{total}",
+                        "Used": f"{used}",
+                        "Left": f"{left}",
+                        "Status": status_badge
+                    })
+                else:
+                    rows.append({
+                        "Key": prefix,
+                        "Plan": "N/A",
+                        "Limit": "0",
+                        "Used": "0",
+                        "Left": "0",
+                        "Status": '<span class="badge-amber">❌ Invalid</span>'
+                    })
+            if rows:
+                df_usage = pd.DataFrame(rows)
+                st.markdown(
+                    df_usage[["Key", "Plan", "Limit", "Used", "Left", "Status"]].to_html(
+                        index=False, escape=False
+                    ),
+                    unsafe_allow_html=True
+                )
+        else:
+            st.info("No SerpApi keys configured. Add keys in the AI Engine tab above.")
 
     st.markdown("---")
     if st.button("💾 Save All Settings", use_container_width=True, type="primary"):
