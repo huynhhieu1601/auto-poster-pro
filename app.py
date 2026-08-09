@@ -353,7 +353,6 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    # Migration: add role column if missing
     try:
         cursor.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'")
         conn.commit()
@@ -409,15 +408,11 @@ def init_db():
         conn.commit()
     except sqlite3.OperationalError:
         pass
-
-    # Add credits column to users if not exists
     try:
         cursor.execute("ALTER TABLE users ADD COLUMN credits REAL DEFAULT 0")
         conn.commit()
     except sqlite3.OperationalError:
         pass
-
-    # Create credit transactions table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS credit_transactions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -430,8 +425,6 @@ def init_db():
         )
     """)
     conn.commit()
-
-    # Auto-create default admin account if no users exist
     cursor.execute("SELECT COUNT(*) as cnt FROM users")
     if cursor.fetchone()["cnt"] == 0:
         cursor.execute(
@@ -439,10 +432,61 @@ def init_db():
             ("admin", hashlib.sha256("admin123".encode()).hexdigest(), "admin", 100000)
         )
         conn.commit()
-
     conn.close()
 
 init_db()
+
+# ============================================================
+# CREDIT SYSTEM HELPERS
+# ============================================================
+def get_user_credits(user_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT credits FROM users WHERE id = ?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+    if row and row["credits"] is not None:
+        return float(row["credits"])
+    return 0.0
+
+def add_credits(user_id, amount, description="Nạp điểm"):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET credits = COALESCE(credits, 0) + ? WHERE id = ?", (amount, user_id))
+    cursor.execute(
+        "INSERT INTO credit_transactions (user_id, amount, type, description) VALUES (?, ?, 'credit', ?)",
+        (user_id, amount, description)
+    )
+    conn.commit()
+    conn.close()
+
+def deduct_user_credit(user_id, cost):
+    current = get_user_credits(user_id)
+    if current < cost:
+        return False
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET credits = credits - ? WHERE id = ?", (cost, user_id))
+    cursor.execute(
+        "INSERT INTO credit_transactions (user_id, amount, type, description) VALUES (?, ?, 'debit', ?)",
+        (user_id, cost, f"Thanh toán bài viết: {cost:,.0f} VNĐ")
+    )
+    conn.commit()
+    conn.close()
+    return True
+
+def get_cost_per_post():
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT value FROM user_settings WHERE user_id IN (SELECT id FROM users WHERE role='admin' LIMIT 1) AND key='cost_per_post'")
+    row = cursor.fetchone()
+    conn.close()
+    if row and row["value"]:
+        try:
+            return float(row["value"])
+        except (ValueError, TypeError):
+            pass
+    return 2000.0
 
 # ============================================================
 # SESSION STATE INITIALIZATION
@@ -486,7 +530,6 @@ def login_user(username, password):
     user = cursor.fetchone()
     if user and user["password_hash"] == hash_password(password):
         role = user["role"] or "user"
-        # Auto-upgrade: if username is 'admin', ensure role is 'admin' in DB
         if str(username).lower() == "admin" and role != "admin":
             cursor.execute("UPDATE users SET role = 'admin' WHERE id = ?", (user["id"],))
             conn.commit()
@@ -631,17 +674,12 @@ def generate_image(prompt, api_base, api_key, project_id, model, n=1, size="1024
 # SERPAPI — MULTI-KEY WITH USAGE TRACKING & ROTATION
 # ============================================================
 def get_serpapi_keys():
-    """Get list of SerpApi keys from session state. Returns [] if none."""
     keys_str = st.session_state.get("serpapi_keys", "")
     if not keys_str:
         return []
     return [k.strip() for k in keys_str.split("\n") if k.strip()]
 
 def check_serpapi_account(api_key):
-    """
-    Check SerpApi account usage for a given API key.
-    Returns dict: {valid, plan, searches_per_month, plan_searches_left, total_searches, error}
-    """
     try:
         r = requests.get(f"https://serpapi.com/account?api_key={api_key}", timeout=10)
         if r.status_code != 200:
@@ -649,16 +687,12 @@ def check_serpapi_account(api_key):
                     "plan_searches_left": 0, "total_searches": 0, 
                     "error": f"HTTP {r.status_code}"}
         data = r.json()
-        plan = data.get("plan_name", "Unknown")
-        searches_per_month = data.get("plan_searches_per_month", 0)
-        plan_searches_left = data.get("plan_searches_left", 0)
-        total_searches = data.get("total_searches", 0)
         return {
             "valid": True,
-            "plan": plan,
-            "searches_per_month": searches_per_month,
-            "plan_searches_left": plan_searches_left,
-            "total_searches": total_searches,
+            "plan": data.get("plan_name", "Unknown"),
+            "searches_per_month": data.get("plan_searches_per_month", 0),
+            "plan_searches_left": data.get("plan_searches_left", 0),
+            "total_searches": data.get("total_searches", 0),
             "error": None
         }
     except Exception as e:
@@ -666,15 +700,9 @@ def check_serpapi_account(api_key):
                 "plan_searches_left": 0, "total_searches": 0, "error": str(e)}
 
 def get_active_serpapi_key():
-    """
-    Iterate through all SerpApi keys and return the first one with remaining searches.
-    Raises RuntimeError if all keys are exhausted or invalid.
-    Returns (api_key, account_info_dict).
-    """
     keys = get_serpapi_keys()
     if not keys:
         raise RuntimeError("No SerpApi keys configured. Please add keys in Global Settings.")
-    
     errors = []
     for key in keys:
         info = check_serpapi_account(key)
@@ -684,17 +712,11 @@ def get_active_serpapi_key():
             errors.append(f"Key {key[:8]}... has 0 searches left")
         else:
             errors.append(f"Key {key[:8]}... is invalid: {info.get('error', 'Unknown')}")
-    
     raise RuntimeError(
-        f"All SerpApi keys have exceeded their monthly quota or are invalid.\n"
-        + "\n".join(errors)
+        f"All SerpApi keys have exceeded their monthly quota or are invalid.\n" + "\n".join(errors)
     )
 
 def get_google_top10_outlines(keyword, serpapi_key=None):
-    """
-    Fetch Top 10 Google organic results via SerpApi.
-    If serpapi_key is None, uses get_active_serpapi_key() for automatic rotation.
-    """
     url = "https://serpapi.com/search.json"
     if serpapi_key is None:
         try:
@@ -751,6 +773,11 @@ def run_full_pipeline(
     try:
         wc = int(word_count) if word_count else 1850
         competitor_ctx = ""
+        if serpapi_key is None:
+            try:
+                serpapi_key, _ = get_active_serpapi_key()
+            except RuntimeError:
+                pass
         if serpapi_key:
             try:
                 t10 = get_google_top10_outlines(keyword, serpapi_key)
@@ -844,14 +871,12 @@ def run_full_pipeline(
 WORKER_LOGS = []
 
 def worker_log(message):
-    """Thread-safe logging to global WORKER_LOGS list (accessible from background threads)."""
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     log_entry = f"[{ts}] {message}"
     WORKER_LOGS.append(log_entry)
-    # Keep only the last 100 logs
     if len(WORKER_LOGS) > 100:
         WORKER_LOGS.pop(0)
-    print(log_entry)  # Also print to console
+    print(log_entry)
 
 # ============================================================
 # BACKGROUND WORKER
@@ -861,78 +886,45 @@ def get_gsheet_client(sa_json):
     return gspread.service_account_from_dict(json.loads(sa_json))
 
 def parse_schedule_date(date_str, time_str):
-    """
-    Parse date and time strings into a datetime with Asia/Ho_Chi_Minh timezone.
-    Handles Google Sheets float time values (e.g., 0.5833 = 14:00).
-    Returns (datetime or None, is_explicit).
-    - If both empty: (None, False) → IMMEDIATE POST
-    - If parsing fails: (None, True) → fallback to IMMEDIATE POST with warning
-    - If parsing succeeds: (scheduled_dt, True)
-    """
     from datetime import timezone, timedelta as td
     import pytz
-
     vn_tz = pytz.timezone("Asia/Ho_Chi_Minh")
-
     date_str = str(date_str).strip() if date_str else ""
     time_str = str(time_str).strip() if time_str else ""
-
     if not date_str and not time_str:
-        return None, False  # No schedule → immediate
-
-    # --- Convert Google Sheets float time to HH:MM:SS if needed ---
-    # Google Sheets stores times as fractions of a day (e.g., 14:00 → 0.583333...)
-    # When reading via FORMATTED_VALUE, we still might get the raw float if sheet is set to "Number" format
+        return None, False
     if time_str:
-        # Check if time_str looks like a float (contains '.' or is purely numeric with a decimal)
-        is_float_time = False
         try:
             float_val = float(time_str)
-            # Valid time floats are between 0.0 and 1.0 (fraction of a day)
             if 0.0 <= float_val < 1.0 and '.' in time_str:
-                is_float_time = True
-                total_seconds = float_val * 86400  # seconds in a day
+                total_seconds = float_val * 86400
                 hours = int(total_seconds // 3600)
                 minutes = int((total_seconds % 3600) // 60)
                 seconds = int(total_seconds % 60)
                 time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
         except (ValueError, TypeError):
-            pass  # Not a float, treat as normal time string
-
-    # --- Try combined parsing (date + time together) ---
+            pass
     combined_str = f"{date_str} {time_str}".strip()
     try:
         import dateutil.parser
         parsed_dt = dateutil.parser.parse(combined_str, dayfirst=True)
-        # Localize to Vietnam timezone
         if parsed_dt.tzinfo is None:
             parsed_dt = vn_tz.localize(parsed_dt)
         return parsed_dt, True
     except Exception:
         pass
-
-    # --- Fallback: try date-only formats ---
     dfmts = ["%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%Y/%m/%d", "%d-%m-%Y", "%Y.%m.%d"]
     pd = None
     if date_str:
         for f in dfmts:
-            try:
-                pd = datetime.strptime(date_str, f)
-                break
-            except ValueError:
-                continue
-
-    # --- Fallback: try time-only formats ---
+            try: pd = datetime.strptime(date_str, f); break
+            except ValueError: continue
     tfmts = ["%H:%M", "%H:%M:%S", "%I:%M %p", "%I:%M:%S %p"]
     pt = None
     if time_str:
         for f in tfmts:
-            try:
-                pt = datetime.strptime(time_str, f)
-                break
-            except ValueError:
-                continue
-
+            try: pt = datetime.strptime(time_str, f); break
+            except ValueError: continue
     if pd and pt:
         combined = pd.replace(hour=pt.hour, minute=pt.minute, second=pt.second, microsecond=0)
         combined = vn_tz.localize(combined)
@@ -943,11 +935,8 @@ def parse_schedule_date(date_str, time_str):
         now = datetime.now(vn_tz)
         combined = now.replace(hour=pt.hour, minute=pt.minute, second=0, microsecond=0)
         return combined, True
-
-    # Neither parsed but at least one was provided → immediate with warning
     if date_str or time_str:
         return None, True
-
     return None, False
 
 def process_sheet_for_user(user_id):
@@ -962,13 +951,11 @@ def process_sheet_for_user(user_id):
         av = ws.get_all_values()
         if not av or len(av) < 2: return 0
         hdrs = [h.strip().lower() for h in av[0]]
-
         def fc(hay, ndls):
             for i, h in enumerate(hay):
                 for n in ndls:
                     if n in h: return i
             return -1
-
         ix_site = fc(hdrs, ["tên website", "website", "site name", "site"])
         ix_kw = fc(hdrs, ["từ khoá", "từ khóa", "keyword"])
         ix_ct = fc(hdrs, ["loại nội dung", "content type"])
@@ -978,7 +965,6 @@ def process_sheet_for_user(user_id):
         ix_time = fc(hdrs, ["giờ đăng", "gio dang", "time", "giờ"])
         ix_st = fc(hdrs, ["trạng thái", "status", "trang thai"])
         ix_lnk = fc(hdrs, ["link", "url", "link bài viết"])
-
         if ix_site == -1: ix_site = 0
         if ix_kw == -1: ix_kw = 1
         if ix_ct == -1: ix_ct = 2
@@ -988,14 +974,11 @@ def process_sheet_for_user(user_id):
         if ix_time == -1: ix_time = 6
         if ix_st == -1: ix_st = 7
         if ix_lnk == -1: ix_lnk = 8
-
         ab = s.get("local_api_base", LOCAL_API_BASE)
         ak = s.get("local_api_key", LOCAL_API_KEY)
         pid = s.get("local_project_id", LOCAL_PROJECT_ID)
         tm = s.get("local_model", LOCAL_MODEL)
         im = s.get("local_image_model", LOCAL_IMAGE_MODEL)
-        # Try multi-key serpapi_keys first, fallback to single serpapi_key
-        serpapi_keys_str = s.get("serpapi_keys", s.get("serpapi_key", DEFAULT_SERPAPI_KEY))
         proc = 0
         for ri in range(1, len(av)):
             row = av[ri]
@@ -1027,11 +1010,9 @@ def process_sheet_for_user(user_id):
                 worker_log(f"⚠️ Row {ri+1}: Cannot parse '{ds} {ts_}' for '{kv}'. Posting immediately.")
                 sdt = datetime.now(); hs = False
             if sdt is None: sdt = datetime.now(); hs = False
-            # --- Timezone-aware comparison ---
             import pytz
             vn_tz = pytz.timezone("Asia/Ho_Chi_Minh")
             now_vn = datetime.now(vn_tz)
-            # Ensure sdt is timezone-aware for comparison
             if hs and sdt.tzinfo is None:
                 sdt = vn_tz.localize(sdt)
             if hs and sdt > now_vn:
@@ -1046,7 +1027,7 @@ def process_sheet_for_user(user_id):
                 wp_username=site["wp_username"], wp_password=site["wp_app_password"],
                 woo_ck=site["woo_ck"], woo_cs=site["woo_cs"], api_base=ab, api_key=ak,
                 project_id=pid, text_model=tm, image_model=im, content_type=cv,
-                schedule_dt=sdt, serpapi_key=None)  # None = auto-rotate
+                schedule_dt=sdt, serpapi_key=None)
             if err is None and link:
                 ws.update_cell(ri + 1, ix_st + 1, "Success"); ws.update_cell(ri + 1, ix_lnk + 1, link)
                 save_history_entry(user_id, site["site_name"], kv, sdt.strftime("%Y-%m-%d %H:%M"),
@@ -1134,7 +1115,6 @@ uid = st.session_state.user_id
 # ============================================================
 with st.sidebar:
     st.markdown('<p class="sidebar-brand">⚡ WP Auto-Poster <span style="font-weight:400;font-size:0.7rem;background:rgba(124,58,237,0.3);padding:2px 6px;border-radius:4px;">PRO</span></p>', unsafe_allow_html=True)
-
     st.markdown(f"""
     <div class="sidebar-user-card">
         <div style="display:flex;align-items:center;gap:0.75rem;">
@@ -1146,42 +1126,28 @@ with st.sidebar:
         </div>
     </div>
     """, unsafe_allow_html=True)
-
     st.markdown('<div style="height:0.5rem;"></div>', unsafe_allow_html=True)
-
-    # Build navigation options based on user role
     current_username = str(st.session_state.get('username', '')).lower()
     current_role = str(st.session_state.get('user_role', '')).lower()
     is_admin = (current_username == 'admin') or (current_role == 'admin')
-    
     nav_options = ["🚀 Content Generator", "🌐 Website Manager"]
     if is_admin:
         nav_options.append("⚙️ Global Settings")
-    
-    # Ensure non-admins can't be on the settings page
     if not is_admin and st.session_state.nav_view == "⚙️ Global Settings":
         st.session_state.nav_view = "🚀 Content Generator"
-    
     view = st.radio(
-        "",
-        nav_options,
-        index=0,
+        "", nav_options, index=0,
         format_func=lambda x: f"  {x}",
         key="nav_radio", label_visibility="collapsed"
     )
     st.session_state.nav_view = view
-    
     if is_admin:
         st.markdown(f'<span class="badge-purple" style="font-size:0.7rem;">🛡️ Admin ({current_role})</span>', unsafe_allow_html=True)
-
     st.markdown("---")
-    # --- CREDIT BALANCE DISPLAY ---
     user_credits = get_user_credits(uid)
     cost_per_post = get_cost_per_post()
     st.sidebar.metric("💳 Số dư tài khoản", f"{user_credits:,.0f} VNĐ")
     st.sidebar.caption(f"Chi phí: {cost_per_post:,.0f} VNĐ / bài viết thành công")
-    
-    # --- RECHARGE PACKAGES (ALL USERS) ---
     with st.expander("💳 Nạp điểm / Mua gói bài đăng", expanded=False):
         st.markdown("**📦 Các gói bài đăng:**")
         col_p1, col_p2, col_p3 = st.columns(3)
@@ -1194,7 +1160,6 @@ with st.sidebar:
         with col_p3:
             if st.button("🚀 Gói 100 bài\n200,000 VNĐ", use_container_width=True, key="pkg100"):
                 st.info("Vui lòng chuyển khoản theo thông tin bên dưới và liên hệ Admin để xác nhận.")
-        
         st.markdown("---")
         st.markdown("**🏦 Thông tin chuyển khoản:**")
         st.markdown("""
@@ -1204,7 +1169,6 @@ with st.sidebar:
         - **Nội dung chuyển khoản:** `NAP <username>` (vd: NAP admin)
         """)
         st.caption("⏳ Sau khi chuyển khoản, vui lòng liên hệ Admin để được cộng điểm trong vòng 5-10 phút.")
-    
     st.markdown("---")
     st.markdown("""
     <div class="sidebar-info-box">
@@ -1212,7 +1176,6 @@ with st.sidebar:
         Add your websites in <em>Website Manager</em>, then use <em>Content Generator</em> to create AI-powered posts.
     </div>
     """, unsafe_allow_html=True)
-
     st.markdown('<div style="height:1rem;"></div>', unsafe_allow_html=True)
     if st.button("🚪 Logout", use_container_width=True):
         logout_user(); st.rerun()
@@ -1227,7 +1190,6 @@ if st.session_state.nav_view == "🚀 Content Generator":
         <p>AI-powered content creation & automated publishing for WordPress & WooCommerce</p>
     </div>
     """, unsafe_allow_html=True)
-
     websites = get_websites(uid)
     if not websites:
         st.warning("⚠️ No websites configured. Go to **🌐 Website Manager** to add your first site.")
@@ -1235,7 +1197,6 @@ if st.session_state.nav_view == "🚀 Content Generator":
         site_options = {w["site_name"]: w for w in websites}
         selected_site_name = st.selectbox("🎯 Target Website", options=list(site_options.keys()))
         selected_site = site_options[selected_site_name]
-
         c1, c2 = st.columns([2, 1], gap="large")
         with c2:
             st.markdown("#### ⚙️ Settings")
@@ -1247,7 +1208,6 @@ if st.session_state.nav_view == "🚀 Content Generator":
             cd, ct = st.columns(2)
             with cd: sched_date = st.date_input("Date", key="gen_date")
             with ct: sched_time = st.time_input("Time", key="gen_time")
-
         with c1:
             keyword = st.text_input("🔑 Primary Keyword", placeholder="e.g. Best SEO Strategies 2026")
             if st.button("✨ Generate SEO Outline (SerpApi)", use_container_width=True):
@@ -1256,7 +1216,6 @@ if st.session_state.nav_view == "🚀 Content Generator":
                 else:
                     with st.spinner("Analyzing Top 10 Google results + generating outline..."):
                         try:
-                            # Use SerpApi auto-rotation for outline generation
                             competitor_context = ""
                             try:
                                 t10 = get_google_top10_outlines(keyword, serpapi_key=None)
@@ -1278,9 +1237,7 @@ if st.session_state.nav_view == "🚀 Content Generator":
                             st.session_state.generated_outline = outline.replace("```", "").strip()
                             st.success("✅ Outline generated!")
                         except Exception as e: st.error(f"Error: {e}")
-
             custom_outline = st.text_area("📝 Outline (edit before generation)", value=st.session_state.generated_outline, height=250)
-
         with c2:
             st.markdown("---")
             if st.button("🚀 Generate & Publish", use_container_width=True, type="primary"):
@@ -1289,30 +1246,33 @@ if st.session_state.nav_view == "🚀 Content Generator":
                 elif content_type == "product" and not (selected_site["woo_ck"] and selected_site["woo_cs"]):
                     st.error("WooCommerce keys required for product publishing!")
                 else:
-                    with st.spinner(f"Generating {content_type}..."):
-                        try:
-                            bp = selected_site.get("brand_voice_prompt", "You are an expert SEO writer.")
-                            dt = datetime.combine(sched_date, sched_time)
-                            _, _, link, _, err = run_full_pipeline(
-                                keyword=keyword, brand_voice_prompt=bp, word_count=word_count,
-                                wp_url=selected_site["wp_url"], wp_username=selected_site["wp_username"],
-                                wp_password=selected_site["wp_app_password"],
-                                woo_ck=selected_site["woo_ck"], woo_cs=selected_site["woo_cs"],
-                                api_base=st.session_state.get("local_api_base", LOCAL_API_BASE),
-                                api_key=st.session_state.get("local_api_key", LOCAL_API_KEY),
-                                project_id=st.session_state.get("local_project_id", LOCAL_PROJECT_ID),
-                                text_model=st.session_state.get("local_model", LOCAL_MODEL),
-                                image_model=st.session_state.get("local_image_model", LOCAL_IMAGE_MODEL),
-                                content_type=content_type, schedule_dt=dt, serpapi_key=None)  # auto-rotate
-                            if err is None and link:
-                                st.success(f"✅ Published to {selected_site_name}!")
-                                st.markdown(f"[View {content_type.capitalize()}]({link})")
-                                save_history_entry(uid, selected_site_name, keyword, dt.strftime("%Y-%m-%d %H:%M"),
-                                                   'future' if dt > datetime.now() else 'publish', content_type, link)
-                                st.session_state.generated_outline = ""; st.rerun()
-                            else: st.error(f"Failed: {err}")
-                        except Exception as e: st.error(f"Error: {e}")
-
+                    cpp = get_cost_per_post()
+                    if not deduct_user_credit(uid, cpp):
+                        st.error(f"⚠️ Tài khoản của bạn không đủ số dư (Cần {cpp:,.0f} VNĐ/bài). Vui lòng nạp thêm điểm!")
+                    else:
+                        with st.spinner(f"Generating {content_type}..."):
+                            try:
+                                bp = selected_site.get("brand_voice_prompt", "You are an expert SEO writer.")
+                                dt = datetime.combine(sched_date, sched_time)
+                                _, _, link, _, err = run_full_pipeline(
+                                    keyword=keyword, brand_voice_prompt=bp, word_count=word_count,
+                                    wp_url=selected_site["wp_url"], wp_username=selected_site["wp_username"],
+                                    wp_password=selected_site["wp_app_password"],
+                                    woo_ck=selected_site["woo_ck"], woo_cs=selected_site["woo_cs"],
+                                    api_base=st.session_state.get("local_api_base", LOCAL_API_BASE),
+                                    api_key=st.session_state.get("local_api_key", LOCAL_API_KEY),
+                                    project_id=st.session_state.get("local_project_id", LOCAL_PROJECT_ID),
+                                    text_model=st.session_state.get("local_model", LOCAL_MODEL),
+                                    image_model=st.session_state.get("local_image_model", LOCAL_IMAGE_MODEL),
+                                    content_type=content_type, schedule_dt=dt, serpapi_key=None)
+                                if err is None and link:
+                                    st.success(f"✅ Published to {selected_site_name}!")
+                                    st.markdown(f"[View {content_type.capitalize()}]({link})")
+                                    save_history_entry(uid, selected_site_name, keyword, dt.strftime("%Y-%m-%d %H:%M"),
+                                                       'future' if dt > datetime.now() else 'publish', content_type, link)
+                                    st.session_state.generated_outline = ""; st.rerun()
+                                else: st.error(f"Failed: {err}")
+                            except Exception as e: st.error(f"Error: {e}")
             st.markdown("---")
             st.markdown("##### 📊 Sheet Sync")
             if st.session_state.worker_started:
@@ -1326,7 +1286,6 @@ if st.session_state.nav_view == "🚀 Content Generator":
                     with st.spinner("Scanning sheet..."):
                         count = process_sheet_for_user(uid)
                         st.success(f"Processed {count} rows!") if count > 0 else st.info("No pending rows found.")
-
     st.markdown("---")
     st.markdown("### 📋 Execution History")
     hist = load_history(uid)
@@ -1360,43 +1319,32 @@ elif st.session_state.nav_view == "🌐 Website Manager":
         <p>Manage your WordPress & WooCommerce websites — add, edit, or remove sites</p>
     </div>
     """, unsafe_allow_html=True)
-
     webs = get_websites(uid)
     editing_site = st.session_state.get("editing_site")
     is_editing = editing_site is not None
-
-    # --- FORM CARD ---
     st.markdown(f"#### {'✏️ Edit Site' if is_editing else '➕ Add New Site'}")
     with st.container():
-        # Use a unique form key based on editing state to fix Streamlit's widget caching
         form_mode = "edit" if is_editing else "add"
         site_name = st.text_input("Site Name *",
             value=editing_site["site_name"] if is_editing else "",
-            placeholder="e.g. My Health Blog",
-            key=f"wm_name_{form_mode}")
+            placeholder="e.g. My Health Blog", key=f"wm_name_{form_mode}")
         wp_url = st.text_input("WordPress URL *",
             value=editing_site["wp_url"] if is_editing else "",
-            placeholder="https://yoursite.com",
-            key=f"wm_url_{form_mode}")
+            placeholder="https://yoursite.com", key=f"wm_url_{form_mode}")
         wp_user = st.text_input("WP Username *",
-            value=editing_site["wp_username"] if is_editing else "",
-            key=f"wm_user_{form_mode}")
+            value=editing_site["wp_username"] if is_editing else "", key=f"wm_user_{form_mode}")
         wp_pass = st.text_input("WP App Password *", type="password",
-            value=editing_site["wp_app_password"] if is_editing else "",
-            key=f"wm_pass_{form_mode}")
+            value=editing_site["wp_app_password"] if is_editing else "", key=f"wm_pass_{form_mode}")
         ck1, ck2 = st.columns(2)
         with ck1:
             woo_ck = st.text_input("WooCommerce Consumer Key", type="password",
-                value=editing_site["woo_ck"] if is_editing else "",
-                placeholder="ck_...", key=f"wm_ck_{form_mode}")
+                value=editing_site["woo_ck"] if is_editing else "", placeholder="ck_...", key=f"wm_ck_{form_mode}")
         with ck2:
             woo_cs = st.text_input("WooCommerce Consumer Secret", type="password",
-                value=editing_site["woo_cs"] if is_editing else "",
-                placeholder="cs_...", key=f"wm_cs_{form_mode}")
+                value=editing_site["woo_cs"] if is_editing else "", placeholder="cs_...", key=f"wm_cs_{form_mode}")
         brand_voice = st.text_area("Brand Voice / System Prompt (per-site)",
             value=editing_site["brand_voice_prompt"] if is_editing else "You are an expert SEO content writer. Write in a professional, engaging tone.",
             height=120, key=f"wm_brand_{form_mode}")
-
         col_s, col_x = st.columns([1, 1])
         with col_s:
             btn_label = "💾 Update Site" if is_editing else "💾 Save Site"
@@ -1411,8 +1359,6 @@ elif st.session_state.nav_view == "🌐 Website Manager":
         with col_x:
             if st.button("Cancel", use_container_width=True):
                 st.session_state.editing_site = None; st.rerun()
-
-    # --- SITE LIST ---
     if webs:
         st.markdown("---")
         st.markdown("### 📋 Your Sites")
@@ -1441,18 +1387,15 @@ elif st.session_state.nav_view == "🌐 Website Manager":
 # VIEW 3: ⚙️ GLOBAL SETTINGS
 # ============================================================
 elif st.session_state.nav_view == "⚙️ Global Settings":
-    # Admin-only access guard
     if not is_admin:
         st.warning("⚠️ Bạn không có quyền truy cập trang Cấu hình API Hệ thống. Vui lòng liên hệ Admin.")
         st.stop()
-    
     st.markdown("""
     <div class="header-banner">
         <h1>⚙️ Global Settings</h1>
         <p>Configure your AI engine & integrations — these apply across all websites</p>
     </div>
     """, unsafe_allow_html=True)
-
     tab_ai, tab_gsheet = st.tabs(["🤖 AI Engine", "📊 Google Sheets"])
     with tab_ai:
         st.markdown("#### Local AI API")
@@ -1465,17 +1408,12 @@ elif st.session_state.nav_view == "⚙️ Global Settings":
             ltm = st.text_input("Text Model", value=st.session_state.get("local_model", LOCAL_MODEL))
             lim = st.text_input("Image Model", value=st.session_state.get("local_image_model", LOCAL_IMAGE_MODEL))
             st.markdown("##### SerpApi Keys (One per line)")
-            sk_ = st.text_area(
-                "SerpApi Keys",
-                value=st.session_state.get("serpapi_keys", DEFAULT_SERPAPI_KEY),
-                height=100,
-                placeholder="Enter one API key per line...",
-                help="Add multiple SerpApi keys for automatic load balancing and failover."
-            )
+            sk_ = st.text_area("SerpApi Keys", value=st.session_state.get("serpapi_keys", DEFAULT_SERPAPI_KEY),
+                               height=100, placeholder="Enter one API key per line...",
+                               help="Add multiple SerpApi keys for automatic load balancing and failover.")
         for k, v in [("local_api_base", lab), ("local_api_key", lak), ("local_project_id", lpi),
                       ("local_model", ltm), ("local_image_model", lim), ("serpapi_keys", sk_)]:
             st.session_state[k] = v; save_user_setting(uid, k, v)
-
     with tab_gsheet:
         st.markdown("#### Google Sheets Automation")
         gu = st.text_input("Sheet URL or ID", value=st.session_state.get("gsheet_url", ""), placeholder="https://docs.google.com/spreadsheets/d/...")
@@ -1495,13 +1433,10 @@ elif st.session_state.nav_view == "⚙️ Global Settings":
         st.markdown("**Expected Sheet Columns (10 cols):**")
         st.code("A: Tên Website | B: Từ khoá chính | C: Loại nội dung | D: Prompt |\nE: Số từ viết | F: Ngày đăng | G: Giờ đăng | H: Trạng thái |\nI: Link bài viết | J: STT")
         st.caption("Worker scans every 1 minute. Future-dated rows wait until scheduled.")
-
-        # --- SERPAPI USAGE DASHBOARD ---
         st.markdown("---")
         st.markdown("#### 📊 SerpApi Usage Dashboard")
         if st.button("🔄 Refresh SerpApi Usage", use_container_width=True):
             st.rerun()
-        
         keys_list = get_serpapi_keys()
         if keys_list:
             rows = []
@@ -1512,57 +1447,29 @@ elif st.session_state.nav_view == "⚙️ Global Settings":
                     left = info["plan_searches_left"]
                     total = info["searches_per_month"]
                     used = total - left if total > 0 else 0
-                    status = "✅ Active" if left > 0 else "⚠️ Exhausted"
                     status_badge = '<span class="badge-success">✅ Active</span>' if left > 0 else '<span class="badge-amber">⚠️ Exhausted</span>'
-                    rows.append({
-                        "Key": prefix,
-                        "Plan": info["plan"],
-                        "Limit": f"{total}",
-                        "Used": f"{used}",
-                        "Left": f"{left}",
-                        "Status": status_badge
-                    })
+                    rows.append({"Key": prefix, "Plan": info["plan"], "Limit": f"{total}", "Used": f"{used}", "Left": f"{left}", "Status": status_badge})
                 else:
-                    rows.append({
-                        "Key": prefix,
-                        "Plan": "N/A",
-                        "Limit": "0",
-                        "Used": "0",
-                        "Left": "0",
-                        "Status": '<span class="badge-amber">❌ Invalid</span>'
-                    })
+                    rows.append({"Key": prefix, "Plan": "N/A", "Limit": "0", "Used": "0", "Left": "0", "Status": '<span class="badge-amber">❌ Invalid</span>'})
             if rows:
                 df_usage = pd.DataFrame(rows)
-                st.markdown(
-                    df_usage[["Key", "Plan", "Limit", "Used", "Left", "Status"]].to_html(
-                        index=False, escape=False
-                    ),
-                    unsafe_allow_html=True
-                )
+                st.markdown(df_usage[["Key", "Plan", "Limit", "Used", "Left", "Status"]].to_html(index=False, escape=False), unsafe_allow_html=True)
         else:
             st.info("No SerpApi keys configured. Add keys in the AI Engine tab above.")
-
     st.markdown("---")
-
-    # --- ADMIN CREDIT MANAGEMENT ---
     st.markdown("#### 💰 Quản lý Nạp điểm & Chi phí")
     cost_per_post_val = st.number_input("Chi phí mỗi bài đăng (VNĐ)", value=get_cost_per_post(), min_value=0, step=500)
     save_user_setting(uid, "cost_per_post", str(int(cost_per_post_val)))
-    
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("SELECT id, username, credits FROM users ORDER BY id")
     all_users = cursor.fetchall()
     conn.close()
-    
     if all_users:
         col_usr, col_amt, col_btn = st.columns([2, 1, 1])
         with col_usr:
-            selected_user_idx = st.selectbox(
-                "Chọn User",
-                options=range(len(all_users)),
-                format_func=lambda i: f"{all_users[i]['username']} (💳 {all_users[i]['credits']:,.0f} VNĐ)"
-            )
+            selected_user_idx = st.selectbox("Chọn User", options=range(len(all_users)),
+                format_func=lambda i: f"{all_users[i]['username']} (💳 {all_users[i]['credits']:,.0f} VNĐ)")
             selected_user = all_users[selected_user_idx]
         with col_amt:
             credit_amount = st.number_input("Số điểm", value=10000, min_value=1000, step=5000)
@@ -1572,23 +1479,15 @@ elif st.session_state.nav_view == "⚙️ Global Settings":
                 add_credits(selected_user["id"], credit_amount, f"Admin nạp {credit_amount:,.0f} VNĐ")
                 st.success(f"✅ Đã nạp {credit_amount:,.0f} VNĐ cho {selected_user['username']}!")
                 st.rerun()
-        
-        # Credit balances table
         st.markdown("---")
-        balance_data = []
-        for u in all_users:
-            balance_data.append({
-                "Username": u["username"],
-                "Balance (VNĐ)": f"{u['credits']:,.0f}",
-            })
+        balance_data = [{"Username": u["username"], "Balance (VNĐ)": f"{u['credits']:,.0f}"} for u in all_users]
         st.table(pd.DataFrame(balance_data))
-
     st.markdown("---")
     if st.button("💾 Save All Settings", use_container_width=True, type="primary"):
         st.success("✅ All settings saved!")
 
 # ============================================================
-# WORKER LOGS (reads from global WORKER_LOGS)
+# WORKER LOGS
 # ============================================================
 st.markdown("---")
 with st.expander("🔧 Background Worker Logs", expanded=False):
