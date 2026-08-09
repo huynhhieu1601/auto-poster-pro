@@ -519,7 +519,7 @@ def generate_text(prompt, system_prompt, api_base, api_key, project_id, model, t
         model=model,
         messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}],
         temperature=temperature)
-    return r.choices[0].message.content
+    return r.generate_text()
 
 def generate_image(prompt, api_base, api_key, project_id, model, n=1, size="1024x1024"):
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json",
