@@ -349,9 +349,16 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'user',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    # Migration: add role column if missing
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS user_settings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -429,12 +436,12 @@ for k, v in defaults.items():
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
-def register_user(username, password):
+def register_user(username, password, role='user'):
     conn = get_db()
     cursor = conn.cursor()
     try:
-        cursor.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)",
-                       (username, hash_password(password)))
+        cursor.execute("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+                       (username, hash_password(password), role))
         conn.commit()
         return True, "Registration successful!"
     except sqlite3.IntegrityError:
@@ -445,20 +452,21 @@ def register_user(username, password):
 def login_user(username, password):
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, username, password_hash FROM users WHERE username = ?", (username,))
+    cursor.execute("SELECT id, username, password_hash, role FROM users WHERE username = ?", (username,))
     user = cursor.fetchone()
     conn.close()
     if user and user["password_hash"] == hash_password(password):
         st.session_state.logged_in = True
         st.session_state.user_id = user["id"]
         st.session_state.username = user["username"]
+        st.session_state.user_role = user["role"] or "user"
         return True, "Login successful!"
     return False, "Invalid username or password."
 
 def logout_user():
-    for key in ["logged_in", "user_id", "username", "generated_outline", "editing_site", "worker_logs"]:
+    for key in ["logged_in", "user_id", "username", "user_role", "generated_outline", "editing_site", "worker_logs"]:
         if key in st.session_state:
-            st.session_state[key] = False if key == "logged_in" else (None if key in ["user_id", "editing_site"] else "")
+            st.session_state[key] = False if key == "logged_in" else (None if key in ["user_id", "editing_site", "user_role"] else "")
     st.session_state.worker_started = False
 
 # ============================================================
@@ -1026,14 +1034,27 @@ with st.sidebar:
 
     st.markdown('<div style="height:0.5rem;"></div>', unsafe_allow_html=True)
 
+    # Build navigation options based on user role
+    nav_options = ["🚀 Content Generator", "🌐 Website Manager"]
+    is_admin = st.session_state.get("user_role") == "admin"
+    if is_admin:
+        nav_options.append("⚙️ Global Settings")
+    
+    # Ensure non-admins can't be on the settings page
+    if not is_admin and st.session_state.nav_view == "⚙️ Global Settings":
+        st.session_state.nav_view = "🚀 Content Generator"
+    
     view = st.radio(
         "",
-        ["🚀 Content Generator", "🌐 Website Manager", "⚙️ Global Settings"],
+        nav_options,
         index=0,
         format_func=lambda x: f"  {x}",
         key="nav_radio", label_visibility="collapsed"
     )
     st.session_state.nav_view = view
+    
+    if is_admin:
+        st.markdown('<span class="badge-purple" style="font-size:0.7rem;">🛡️ Admin</span>', unsafe_allow_html=True)
 
     st.markdown("---")
     st.markdown("""
@@ -1273,6 +1294,11 @@ elif st.session_state.nav_view == "🌐 Website Manager":
 # VIEW 3: ⚙️ GLOBAL SETTINGS
 # ============================================================
 elif st.session_state.nav_view == "⚙️ Global Settings":
+    # Admin-only access guard
+    if not is_admin:
+        st.warning("⚠️ Bạn không có quyền truy cập trang Cấu hình API Hệ thống. Vui lòng liên hệ Admin.")
+        st.stop()
+    
     st.markdown("""
     <div class="header-banner">
         <h1>⚙️ Global Settings</h1>
