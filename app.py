@@ -17,7 +17,7 @@ import schedule as schedule_lib
 # ============================================================
 # CONSTANTS
 # ============================================================
-DB_FILE = "wp_poster.db"
+DB_FILE = "/tmp/autoposter_data.db"
 
 LOCAL_API_BASE = "http://localhost:3003/v1"
 LOCAL_API_KEY = "AQ.Ab8RN6IjV-QWSXPxSIydANNNuh8a2bdOh_wkBRWd_diI7s67Tw"
@@ -409,6 +409,16 @@ def init_db():
         conn.commit()
     except sqlite3.OperationalError:
         pass
+
+    # Auto-create default admin account if no users exist
+    cursor.execute("SELECT COUNT(*) as cnt FROM users")
+    if cursor.fetchone()["cnt"] == 0:
+        cursor.execute(
+            "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+            ("admin", hashlib.sha256("admin123".encode()).hexdigest(), "admin")
+        )
+        conn.commit()
+
     conn.close()
 
 init_db()
