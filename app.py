@@ -173,22 +173,44 @@ def load_history(uid):
 
 # ★★★ FIX: parse_ai_response BEFORE generate_text ★★★
 def parse_ai_response(response):
-    """Safely extract text content from various AI API response formats."""
+    """Safely extract text content from various AI API response formats.
+    Raises ValueError if the response contains Kira Agent Platform web UI HTML
+    instead of actual AI-generated text."""
+    # Extract the raw text content first
     if isinstance(response, str):
         try:
             data = json.loads(response)
             if isinstance(data, dict) and "choices" in data:
-                return data["choices"][0]["message"]["content"]
-            return response
+                content = data["choices"][0]["message"]["content"]
+            else:
+                content = response
         except (json.JSONDecodeError, ValueError):
-            return response
-    if isinstance(response, dict):
+            content = response
+    elif isinstance(response, dict):
         if "choices" in response:
-            return response["choices"][0]["message"]["content"]
-        return str(response)
-    if hasattr(response, "choices"):
-        return response.choices[0].message.content
-    return str(response)
+            content = response["choices"][0]["message"]["content"]
+        else:
+            content = str(response)
+    elif hasattr(response, "choices"):
+        content = response.choices[0].message.content
+    else:
+        content = str(response)
+
+    # Guard: detect if the API returned web UI HTML instead of AI text
+    content_lower = content.lower() if isinstance(content, str) else ""
+    if isinstance(content, str) and (
+        "<div class=\"app-container\"" in content_lower
+        or "<aside" in content_lower
+        or "class=\"sidebar-menu\"" in content_lower
+        or "sidebar-menu" in content_lower
+        or content.strip().startswith("<!doctype html")
+    ):
+        raise ValueError(
+            "❌ Lỗi API: Endpoint trả về giao diện Web Kira Agent thay vì JSON. "
+            "Vui lòng kiểm tra lại API Base URL (thêm /v1) hoặc tắt Auth trên Local Server 3003."
+        )
+
+    return content
 
 def generate_text(prompt, sp, ab, ak, pid, model, temp=0.7):
     hdrs={"x-goog-project-id":pid,"ngrok-skip-browser-warning":"true","User-Agent":"WPAutoPosterPRO/1.0"}
@@ -281,6 +303,22 @@ def run_full_pipeline(
         outline=generate_text(prompt=op,sp=f"{bp}\n\nYou are an expert SEO strategist. Output only the outline.",ab=ab,ak=ak,pid=pid,model=tm).replace("```","").strip()
         ap=(f'Write a comprehensive, SEO-optimized WooCommerce product description for: "{kw}".\nFollow this outline: {outline}\nTarget: {wc} words. Output ONLY valid HTML. Include features, benefits, specs, CTA.' if ct=="product" else f'Write a comprehensive, SEO-friendly article for: "{kw}".\nFollow this outline: {outline}\nTarget: {wc} words. Output ONLY valid HTML.')
         html=generate_text(prompt=ap,sp=f"{bp}\n\nYou are an expert content writer. Output clean HTML without markdown wrappers.",ab=ab,ak=ak,pid=pid,model=tm).replace("```html","").replace("```","").strip()
+
+        # Guard: detect if generated content is actually Kira Agent web UI HTML
+        if (
+            "app-container" in html
+            or "sidebar-menu" in html
+            or html.strip().startswith("<!DOCTYPE")
+        ):
+            return (
+                title,
+                "",
+                "",
+                None,
+                "❌ Lỗi: API Base URL đang trỏ vào trang Web thay vì API Endpoint."
+                " Vui lòng thêm /v1 vào API Base URL trong Global Settings.",
+            )
+
         soup=BeautifulSoup(html,'html.parser');h2s=soup.find_all('h2');fmid=None
         if h2s:
             for idx,h2 in enumerate(h2s):
