@@ -751,7 +751,10 @@ if st.session_state.nav_view=="🚀 Content Generator":
             if st.button("🔄 Run Sheet Automation Now",use_container_width=True):
                 if not st.session_state.get("gsheet_sa_json") or not st.session_state.get("gsheet_url"): st.warning("Configure Google Sheets first.")
                 else:
-                    with st.spinner("Scanning..."): count=process_sheet_for_user(uid);st.success(f"Processed {count} rows!") if count>0 else st.info("No pending rows.")
+                    with st.spinner("Scanning..."):
+                        count=process_sheet_for_user(uid)
+                        if count>0: st.success(f"Processed {count} rows!")
+                        else: st.info("No pending rows.")
     st.markdown("---");st.markdown("### 📜 Lịch sử Giao dịch")
     txn=get_credit_transactions(uid)
     if txn:
