@@ -1,6 +1,6 @@
-# THIS FILE IS A PLACEHOLDER — copy the fixed version from /Users/macbook/WordPress_Tool/app.py
-# The actual fix: add parse_ai_response() before generate_text(), then change
-#   "return r.choices[0].message.content" → "return parse_ai_response(r)"
+# WP Auto-Poster PRO — Streamlit client
+# Gọi /v1/chat/completions tới Express proxy (thư mục server/) tại LOCAL_API_BASE.
+# Client tự fallback credentials mặc định hệ thống khi user mới / chưa có key.
 
 import streamlit as st
 import sqlite3
@@ -64,8 +64,8 @@ def get_db():
 
 def init_db():
     conn = get_db(); c = conn.cursor()
-    c.execute("CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT UNIQUE NOT NULL,password_hash TEXT NOT NULL,role TEXT NOT NULL DEFAULT 'user',credits REAL DEFAULT 2000.0,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
-    for col,defv in [("role","'user'"),("credits","2000.0")]:
+    c.execute("CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT UNIQUE NOT NULL,password_hash TEXT NOT NULL,role TEXT NOT NULL DEFAULT 'user',credits REAL DEFAULT 2000.0,session_token TEXT DEFAULT '',created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+    for col,defv in [("role","'user'"),("credits","2000.0"),("session_token","''")]:
         try: c.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT NOT NULL DEFAULT {defv}"); conn.commit()
         except: pass
     c.execute("CREATE TABLE IF NOT EXISTS user_settings(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,key TEXT NOT NULL,value TEXT,UNIQUE(user_id,key),FOREIGN KEY(user_id) REFERENCES users(id))")
@@ -109,18 +109,50 @@ def get_credit_transactions(uid,limit=20):
     return [dict(r) for r in rows]
 
 # SESSION
-for k,v in {"generated_outline":"","logged_in":False,"user_id":None,"username":"","worker_started":False,"nav_view":"🚀 Content Generator","editing_site":None}.items():
+for k,v in {"generated_outline":"","logged_in":False,"user_id":None,"username":"","user_role":None,"session_token":"","worker_started":False,"nav_view":"🚀 Content Generator","editing_site":None}.items():
     if k not in st.session_state: st.session_state[k]=v
 
 # AUTH
 def hash_password(pw): return hashlib.sha256(pw.encode()).hexdigest()
+def api_log(msg):
+    try: print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}",flush=True)
+    except Exception: print(msg,flush=True)
+def new_session_token(): return secrets.token_hex(32)
+def _key_prefix(k):
+    if not k: return "EMPTY"
+    return f"{k[:8]}..." if len(k)>8 else k
+def _is_auth_conn_error(e):
+    """True nếu lỗi liên quan xác thực (401/403/missing credentials) hoặc kết nối (connection error/reset)."""
+    msg=str(e).lower()
+    status=getattr(e,"status_code",None)
+    if status is None:
+        resp=getattr(e,"response",None);status=getattr(resp,"status_code",None) if resp else None
+    if status in (401,403): return True
+    return any(s in msg for s in [
+        "authentication","unauthorized","missing credentials","api key","invalid api",
+        "401","403","forbidden",
+        "connection error","connection reset","connection aborted","connected aborted",
+        "failed to connect","econnrefused","closed","timeout","network",
+    ])
+def init_user_default_settings(uid):
+    """Tự động khởi tạo đầy đủ dữ liệu mặc định cho tài khoản mới:
+    API base/key/project mặc định hệ thống, model, serpapi key (credentials mặc định)."""
+    for k,v in [("local_api_base",LOCAL_API_BASE),("local_api_key",LOCAL_API_KEY),
+                ("local_project_id",LOCAL_PROJECT_ID),("local_model",LOCAL_MODEL),
+                ("local_image_model",LOCAL_IMAGE_MODEL),("serpapi_keys",DEFAULT_SERPAPI_KEY)]:
+        try: save_user_setting(uid,k,v)
+        except Exception as e: api_log(f"init_user_default_settings: không tạo được {k} cho user {uid}: {e}")
 def register_user(un,pw,role='user'):
     conn=get_db();c=conn.cursor()
     try:
-        c.execute("INSERT INTO users(username,password_hash,role,credits) VALUES(?,?,?,2000)",(un,hash_password(pw),role))
+        tok=new_session_token()
+        c.execute("INSERT INTO users(username,password_hash,role,credits,session_token) VALUES(?,?,?,?,?)",(un,hash_password(pw),role,2000,tok))
         uid=c.lastrowid
         c.execute("INSERT INTO credit_transactions(user_id,amount,type,description) VALUES(?,2000,'BONUS','Tặng 1 bài viết trải nghiệm')",(uid,))
-        conn.commit();return True,"Registration successful!"
+        conn.commit()
+        init_user_default_settings(uid)
+        api_log(f"✅ Đăng ký '{un}' (id={uid}): credits=2000, API key mặc định + session token đã khởi tạo")
+        return True,"Registration successful!"
     except sqlite3.IntegrityError: return False,"Username already exists."
     finally: conn.close()
 def login_user(un,pw):
@@ -129,13 +161,14 @@ def login_user(un,pw):
     if u and u["password_hash"]==hash_password(pw):
         role=u["role"] or "user"
         if str(un).lower()=="admin" and role!="admin": c.execute("UPDATE users SET role='admin' WHERE id=?",(u["id"],));conn.commit();role="admin"
+        tok=new_session_token();c.execute("UPDATE users SET session_token=? WHERE id=?",(tok,u["id"]));conn.commit()
         conn.close()
-        st.session_state.logged_in=True;st.session_state.user_id=u["id"];st.session_state.username=u["username"];st.session_state.user_role=role
+        st.session_state.logged_in=True;st.session_state.user_id=u["id"];st.session_state.username=u["username"];st.session_state.user_role=role;st.session_state.session_token=tok
         return True,"Login successful!"
     conn.close();return False,"Invalid username or password."
 def logout_user():
-    for k in ["logged_in","user_id","username","user_role","generated_outline","editing_site"]:
-        if k in st.session_state: st.session_state[k]=False if k=="logged_in" else(None if k in["user_id","editing_site","user_role"] else "")
+    for k in ["logged_in","user_id","username","user_role","generated_outline","editing_site","session_token"]:
+        if k in st.session_state: st.session_state[k]=False if k=="logged_in" else(None if k in["user_id","editing_site","user_role","session_token"] else "")
     st.session_state.worker_started=False
 
 def save_user_setting(uid,k,v):
@@ -213,15 +246,48 @@ def parse_ai_response(response):
     return content
 
 def generate_text(prompt, sp, ab, ak, pid, model, temp=0.7):
-    hdrs={"x-goog-project-id":pid,"ngrok-skip-browser-warning":"true","User-Agent":"WPAutoPosterPRO/1.0"}
-    client=OpenAI(base_url=ab,api_key=ak if ak else "dummy_key",default_headers=hdrs)
-    r=client.chat.completions.create(model=model,messages=[{"role":"system","content":sp},{"role":"user","content":prompt}],temperature=temp)
-    return parse_ai_response(r)
+    # Fallback credentials mặc định hệ thống nếu user mới / chưa cấu hình key
+    ab=ab or LOCAL_API_BASE;pid=pid or LOCAL_PROJECT_ID;ak=ak or LOCAL_API_KEY;model=model or LOCAL_MODEL
+    attempts=[(ab,ak,pid)]
+    sys_default=(LOCAL_API_BASE,LOCAL_API_KEY,LOCAL_PROJECT_ID)
+    if (ab,ak,pid)!=sys_default: attempts.append(sys_default)
+    last_err=None
+    for i,(uab,uak,upid) in enumerate(attempts,1):
+        try:
+            hdrs={"x-goog-project-id":upid,"ngrok-skip-browser-warning":"true","User-Agent":"WPAutoPosterPRO/1.0"}
+            client=OpenAI(base_url=uab,api_key=uak if uak else "dummy_key",default_headers=hdrs)
+            r=client.chat.completions.create(model=model,messages=[{"role":"system","content":sp},{"role":"user","content":prompt}],temperature=temp)
+            api_log(f"generate_text OK | base={uab} model={model} key={_key_prefix(uak)} attempt={i}/{len(attempts)}")
+            return parse_ai_response(r)
+        except Exception as e:
+            last_err=e
+            api_log(f"generate_text LỖI attempt={i}/{len(attempts)} | base={uab} model={model} key={_key_prefix(uak)} | {type(e).__name__}: {e}")
+            if i<len(attempts) and _is_auth_conn_error(e): continue
+            break
+    raise last_err
 
 def generate_image(prompt,ab,ak,pid,model,n=1,size="1024x1024"):
-    h={"Authorization":f"Bearer {ak}","Content-Type":"application/json","x-goog-project-id":pid,"ngrok-skip-browser-warning":"true","User-Agent":"WPAutoPosterPRO/1.0"}
-    r=requests.post(f"{ab.rstrip('/')}/images/generations",json={"model":model,"prompt":prompt,"n":n,"size":size},headers=h,timeout=120)
-    r.raise_for_status();return r.json().get("data",[])
+    ab=ab or LOCAL_API_BASE;pid=pid or LOCAL_PROJECT_ID;ak=ak or LOCAL_API_KEY;model=model or LOCAL_IMAGE_MODEL
+    attempts=[(ab,ak,pid)]
+    sys_default=(LOCAL_API_BASE,LOCAL_API_KEY,LOCAL_PROJECT_ID)
+    if (ab,ak,pid)!=sys_default: attempts.append(sys_default)
+    last_err=None
+    for i,(uab,uak,upid) in enumerate(attempts,1):
+        try:
+            h={"Authorization":f"Bearer {uak}","Content-Type":"application/json","x-goog-project-id":upid,"ngrok-skip-browser-warning":"true","User-Agent":"WPAutoPosterPRO/1.0"}
+            r=requests.post(f"{uab.rstrip('/')}/images/generations",json={"model":model,"prompt":prompt,"n":n,"size":size},headers=h,timeout=120)
+            api_log(f"generate_image HTTP {r.status_code} | base={uab} model={model} key={_key_prefix(uak)} attempt={i}/{len(attempts)}")
+            if r.status_code in (401,403):
+                if i<len(attempts): continue
+                r.raise_for_status()
+            r.raise_for_status()
+            return r.json().get("data",[])
+        except Exception as e:
+            last_err=e
+            api_log(f"generate_image LỖI attempt={i}/{len(attempts)} | base={uab} model={model} key={_key_prefix(uak)} | {type(e).__name__}: {e}")
+            if i<len(attempts) and _is_auth_conn_error(e): continue
+            break
+    raise last_err
 
 # SERPAPI
 def get_serpapi_keys():
@@ -363,7 +429,9 @@ def run_full_pipeline(
             r=wp_api_request_params("POST","wp/v2/posts",wu,wu2,wp,json=payload)
             if r.status_code in[200,201]: d=r.json();return (title,html,d.get("link","#"),fmid,None)
             return (title,html,"",fmid,f"WP Error {r.status_code}")
-    except Exception as e: return ("","","",None,str(e))
+    except Exception as e:
+        api_log(f"run_full_pipeline LỖI | kw={kw} | {type(e).__name__}: {e}")
+        return ("","","",None,str(e))
 
 # WORKER
 WORKER_LOGS=[]
@@ -504,7 +572,10 @@ if not st.session_state.logged_in:
                 elif len(rp)<4: st.error("Min 4 characters.")
                 else:
                     ok,msg=register_user(ru,rp)
-                    st.success(msg) if ok else st.error(msg)
+                    if ok:
+                        login_user(ru,rp)  # tự đăng nhập + kích hoạt session token
+                        st.success(f"✅ Đăng ký thành công! Chào mừng {ru}");st.rerun()
+                    else: st.error(msg)
     st.markdown('</div>',unsafe_allow_html=True);st.stop()
 
 start_background_worker()
