@@ -130,6 +130,25 @@ def api_log(msg):
     try: print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}",flush=True)
     except Exception: print(msg,flush=True)
 def new_session_token(): return secrets.token_hex(32)
+def get_user_by_session_token(tok):
+    if not tok: return None
+    conn=get_db();c=conn.cursor()
+    c.execute("SELECT id,username,role FROM users WHERE session_token=?",(str(tok),));u=c.fetchone();conn.close()
+    return dict(u) if u else None
+def restore_session_from_token():
+    """Tự đăng nhập lại khi session_state bị reset (VD: refresh trình duyệt / server restart).
+    Token lưu trong query param 'kt' — được đặt khi đăng nhập/đăng ký."""
+    if st.session_state.get("logged_in"): return
+    tok=st.query_params.get("kt") if hasattr(st,"query_params") else None
+    if isinstance(tok,list): tok=tok[0] if tok else ""
+    tok=tok or ""
+    u=get_user_by_session_token(tok)
+    if u:
+        st.session_state.logged_in=True;st.session_state.user_id=u["id"];st.session_state.username=u["username"];st.session_state.user_role=u["role"] or "user";st.session_state.session_token=tok
+        api_log(f"🔓 Tự đăng nhập lại user '{u['username']}' từ session token")
+    else:
+        try: st.query_params.clear()
+        except Exception: pass
 def _key_prefix(k):
     if not k: return "EMPTY"
     return f"{k[:8]}..." if len(k)>8 else k
@@ -203,11 +222,15 @@ def login_user(un,pw):
         tok=new_session_token();c.execute("UPDATE users SET session_token=? WHERE id=?",(tok,u["id"]));conn.commit()
         conn.close()
         st.session_state.logged_in=True;st.session_state.user_id=u["id"];st.session_state.username=u["username"];st.session_state.user_role=role;st.session_state.session_token=tok
+        try: st.query_params["kt"]=tok  # lưu token vào URL để tự đăng nhập lại khi refresh
+        except Exception: pass
         return True,"Login successful!"
     conn.close();return False,"Invalid username or password."
 def logout_user():
     for k in ["logged_in","user_id","username","user_role","generated_outline","editing_site","session_token"]:
         if k in st.session_state: st.session_state[k]=False if k=="logged_in" else(None if k in["user_id","editing_site","user_role","session_token"] else "")
+    try: st.query_params.clear()  # xoá token tự đăng nhập
+    except Exception: pass
     st.session_state.worker_started=False
 
 def save_user_setting(uid,k,v):
@@ -599,6 +622,7 @@ def start_background_worker():
         threading.Thread(target=background_worker_loop,daemon=True).start();st.session_state.worker_started=True;worker_log("🔧 Worker thread initialized")
 
 # LOGIN UI
+restore_session_from_token()  # tự đăng nhập lại khi refresh (session_state bị reset)
 if not st.session_state.logged_in:
     st.markdown('<div class="login-card">',unsafe_allow_html=True)
     st.markdown("## 🔐 WP Auto-Poster PRO");st.caption("Your AI-powered content automation platform")
