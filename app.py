@@ -155,9 +155,9 @@ def get_website_by_id(wid):
 def get_website_by_name(uid,sn):
     conn=get_db();c=conn.cursor();c.execute("SELECT * FROM websites WHERE user_id=? AND site_name=?",(uid,sn));r=c.fetchone();conn.close()
     return dict(r) if r else None
-def save_website(uid,sn,wu,wu2,wp,ck,cs,bv,wid=None):
+def save_website(uid,sn,wu,wu2,wp,ck,cs,bv,website_id=None):
     conn=get_db();c=conn.cursor()
-    if wid: c.execute("UPDATE websites SET site_name=?,wp_url=?,wp_username=?,wp_app_password=?,woo_ck=?,woo_cs=?,brand_voice_prompt=? WHERE id=? AND user_id=?",(sn,wu,wu2,wp,ck,cs,bv,wid,uid))
+    if website_id: c.execute("UPDATE websites SET site_name=?,wp_url=?,wp_username=?,wp_app_password=?,woo_ck=?,woo_cs=?,brand_voice_prompt=? WHERE id=? AND user_id=?",(sn,wu,wu2,wp,ck,cs,bv,website_id,uid))
     else: c.execute("INSERT INTO websites(user_id,site_name,wp_url,wp_username,wp_app_password,woo_ck,woo_cs,brand_voice_prompt) VALUES(?,?,?,?,?,?,?,?)",(uid,sn,wu,wu2,wp,ck,cs,bv))
     conn.commit();conn.close()
 def delete_website(wid,uid):
