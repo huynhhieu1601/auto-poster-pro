@@ -9,6 +9,7 @@ import secrets
 from openai import OpenAI
 import requests
 import json
+import re
 import os
 import base64
 from datetime import datetime, timedelta
@@ -267,6 +268,56 @@ def load_history(uid):
     rows=c.fetchall();conn.close();return [dict(r) for r in rows]
 
 # ★★★ FIX: parse_ai_response BEFORE generate_text ★★★
+def _clean_json(raw):
+    """Chuẩn hoá nội dung JSON-LD: bỏ code fence, khai báo biến JS (const x = ...),
+    bỏ dấu ';' cuối. Trả về chuỗi JSON thuần túy { ... } hoặc None nếu không sửa được."""
+    if raw is None: return None
+    s=str(raw).strip()
+    if not s: return None
+    # Bỏ code fence ```json ... ```
+    s=re.sub(r'^```(?:json)?\s*','',s).rstrip('`').strip()
+    # Bỏ khai báo biến JavaScript: const|let|var name = ... hoặc export default ...
+    s=re.sub(r'^(?:export\s+default\s+)?(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*','',s,flags=re.M).strip()
+    # Bỏ dấu ';' ở cuối
+    s=s.rstrip(';').strip()
+    # Thử parse trực tiếp
+    try:
+        obj=json.loads(s)
+        return json.dumps(obj,ensure_ascii=False,indent=2)
+    except Exception:
+        pass
+    # Thử trích đối tượng { ... } đầu tiên (bỏ phần khai báo/thừa)
+    try:
+        dec=json.JSONDecoder()
+        start=s.find('{')
+        if start>=0:
+            obj,_=dec.raw_decode(s[start:])
+            return json.dumps(obj,ensure_ascii=False,indent=2)
+    except Exception:
+        pass
+    return None
+
+def clean_jsonld_schema(html):
+    """Dọn mọi khối <script type="application/ld+json"> trong HTML:
+    chỉ giữ JSON thuần túy { ... } — KHÔNG biến JS (const ... =), KHÔNG dấu ';' ở cuối.
+    Khối nào không sửa được (JSON không hợp lệ) sẽ bị gỡ bỏ để không phá trang."""
+    if not html or not isinstance(html,str): return html
+    try: soup=BeautifulSoup(html,'html.parser')
+    except Exception: return html
+    changed=False
+    for sc in soup.find_all('script'):
+        stype=(sc.get('type') or '').strip().lower()
+        if stype not in ('application/ld+json','application/json'): continue
+        raw=sc.get_text() if sc.string is None else sc.string
+        cleaned=_clean_json(raw)
+        if cleaned is not None:
+            sc.string=cleaned
+            changed=True
+        else:
+            sc.decompose()  # JSON-LD lỗi -> bỏ khối
+            changed=True
+    return str(soup) if changed else html
+
 def parse_ai_response(response):
     """Safely extract text content from various AI API response formats.
     Raises ValueError if the response contains Kira Agent Platform web UI HTML
@@ -435,8 +486,8 @@ def run_full_pipeline(
         ctl="blog post" if ct=="post" else "WooCommerce product description"
         op=(f'Analyze Top 10 Google results for "{kw}":\n{cc}\nCreate an all-inclusive SEO outline (H2, H3) for a {ctl} that covers all key points and outperforms them. Target: {wc} words. Output H2/H3, no JSON.' if cc else f'Generate a detailed structured outline for a {ctl} about "{kw}". Target: {wc} words. Output H2/H3, no JSON.')
         outline=generate_text(prompt=op,sp=f"{bp}\n\nYou are an expert SEO strategist. Output only the outline.",ab=ab,ak=ak,pid=pid,model=tm).replace("```","").strip()
-        ap=(f'Write a comprehensive, SEO-optimized WooCommerce product description for: "{kw}".\nFollow this outline: {outline}\nTarget: {wc} words. Output ONLY valid HTML. Include features, benefits, specs, CTA.' if ct=="product" else f'Write a comprehensive, SEO-friendly article for: "{kw}".\nFollow this outline: {outline}\nTarget: {wc} words. Output ONLY valid HTML.')
-        html=generate_text(prompt=ap,sp=f"{bp}\n\nYou are an expert content writer. Output clean HTML without markdown wrappers.",ab=ab,ak=ak,pid=pid,model=tm).replace("```html","").replace("```","").strip()
+        ap=(f'Write a comprehensive, SEO-optimized WooCommerce product description for: "{kw}".\nFollow this outline: {outline}\nTarget: {wc} words. Output ONLY valid HTML. Include features, benefits, specs, CTA. When adding SEO JSON-LD schema (<script type="application/ld+json">), output PURE JSON only: start with {{ and end with }}, do NOT use a JavaScript variable (no const x = ...), do NOT add a semicolon at the end.' if ct=="product" else f'Write a comprehensive, SEO-friendly article for: "{kw}".\nFollow this outline: {outline}\nTarget: {wc} words. Output ONLY valid HTML. When adding SEO JSON-LD schema (<script type="application/ld+json">), output PURE JSON only: start with {{ and end with }}, do NOT use a JavaScript variable (no const x = ...), do NOT add a semicolon at the end.')
+        html=generate_text(prompt=ap,sp=f"{bp}\n\nYou are an expert content writer. Output clean HTML without markdown wrappers. JSON-LD schema blocks (<script type=\"application/ld+json\">) must contain PURE JSON objects only: start with {{ and end with }}, no const/let/var declaration, no trailing semicolon.",ab=ab,ak=ak,pid=pid,model=tm).replace("```html","").replace("```","").strip()
 
         # Guard: detect if generated content is actually Kira Agent web UI HTML
         if (
@@ -479,6 +530,8 @@ def run_full_pipeline(
                         try: fmid,_=upload_image_to_wp(lu,wu,wu2,wp)
                         except: pass
             except: pass
+        # Chuẩn hoá JSON-LD: chỉ giữ JSON thuần { ... } (bỏ const ... =, dấu ';' cuối)
+        html=clean_jsonld_schema(html)
         if sdt is None: sdt=datetime.now()
         ps='future' if sdt>datetime.now() else 'publish'
         if ct=="product":
