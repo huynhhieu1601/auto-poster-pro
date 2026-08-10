@@ -134,6 +134,33 @@ def _is_auth_conn_error(e):
         "connection error","connection reset","connection aborted","connected aborted",
         "failed to connect","econnrefused","closed","timeout","network",
     ])
+def _port_of(u):
+    """Lấy cổng từ base URL, VD http://localhost:3003/v1 -> 3003."""
+    try: return u.split("//")[1].split("/")[0].split(":")[1]
+    except Exception: return "3003"
+def _base_variants(ab):
+    """Các biến thể host của cùng API base (localhost ↔ 127.0.0.1) để tránh
+    lỗi connection khi server chỉ lắng nghe trên một giao thức IPv4 hoặc IPv6."""
+    if not ab: return [ab]
+    out=[ab]
+    for a,b in (("localhost","127.0.0.1"),("127.0.0.1","localhost")):
+        if a in ab:
+            alt=ab.replace(a,b)
+            if alt not in out: out.append(alt)
+    return out
+def _friendly_error(e, base):
+    """Chuyển lỗi thô (Connection error / 401) thành thông báo hướng dẫn khắc phục."""
+    msg=str(e);low=msg.lower()
+    if any(s in low for s in ("connection error","connection reset","connected aborted","connection aborted","econnrefused","failed to connect","closed","timeout","network is unreachable")):
+        return (f"❌ Không kết nối được AI server tại '{base}'. Hướng dẫn: "
+                f"(1) chạy server: cd server && npm install && npm start; "
+                f"(2) server/.env đặt PORT={_port_of(LOCAL_API_BASE)} để khớp app ({LOCAL_API_BASE}); "
+                f"(3) API Base URL trong Global Settings phải có đuôi /v1. "
+                f"Chi tiết: {type(e).__name__}: {e}")
+    if any(s in low for s in ("401","403","unauthorized","forbidden","authentication","missing credentials","api key")):
+        return (f"❌ AI server từ chối xác thực ({type(e).__name__}). Kiểm tra server/.env: "
+                f"PROXY_ALLOW_FALLBACK=true và đã cấu hình ApiKey admin trong DB hoặc GEMINI_API_KEY. | {e}")
+    return f"{type(e).__name__}: {e}"
 def init_user_default_settings(uid):
     """Tự động khởi tạo đầy đủ dữ liệu mặc định cho tài khoản mới:
     API base/key/project mặc định hệ thống, model, serpapi key (credentials mặc định)."""
@@ -248,9 +275,12 @@ def parse_ai_response(response):
 def generate_text(prompt, sp, ab, ak, pid, model, temp=0.7):
     # Fallback credentials mặc định hệ thống nếu user mới / chưa cấu hình key
     ab=ab or LOCAL_API_BASE;pid=pid or LOCAL_PROJECT_ID;ak=ak or LOCAL_API_KEY;model=model or LOCAL_MODEL
-    attempts=[(ab,ak,pid)]
     sys_default=(LOCAL_API_BASE,LOCAL_API_KEY,LOCAL_PROJECT_ID)
-    if (ab,ak,pid)!=sys_default: attempts.append(sys_default)
+    attempts=[];seen=set()
+    for (uab,uak,upid) in [(ab,ak,pid)]+([sys_default] if (ab,ak,pid)!=sys_default else []):
+        for bv in _base_variants(uab):
+            key=(bv,uak,upid)
+            if key not in seen: seen.add(key);attempts.append(key)
     last_err=None
     for i,(uab,uak,upid) in enumerate(attempts,1):
         try:
@@ -264,13 +294,16 @@ def generate_text(prompt, sp, ab, ak, pid, model, temp=0.7):
             api_log(f"generate_text LỖI attempt={i}/{len(attempts)} | base={uab} model={model} key={_key_prefix(uak)} | {type(e).__name__}: {e}")
             if i<len(attempts) and _is_auth_conn_error(e): continue
             break
-    raise last_err
+    raise RuntimeError(_friendly_error(last_err, ab))
 
 def generate_image(prompt,ab,ak,pid,model,n=1,size="1024x1024"):
     ab=ab or LOCAL_API_BASE;pid=pid or LOCAL_PROJECT_ID;ak=ak or LOCAL_API_KEY;model=model or LOCAL_IMAGE_MODEL
-    attempts=[(ab,ak,pid)]
     sys_default=(LOCAL_API_BASE,LOCAL_API_KEY,LOCAL_PROJECT_ID)
-    if (ab,ak,pid)!=sys_default: attempts.append(sys_default)
+    attempts=[];seen=set()
+    for (uab,uak,upid) in [(ab,ak,pid)]+([sys_default] if (ab,ak,pid)!=sys_default else []):
+        for bv in _base_variants(uab):
+            key=(bv,uak,upid)
+            if key not in seen: seen.add(key);attempts.append(key)
     last_err=None
     for i,(uab,uak,upid) in enumerate(attempts,1):
         try:
@@ -287,7 +320,7 @@ def generate_image(prompt,ab,ak,pid,model,n=1,size="1024x1024"):
             api_log(f"generate_image LỖI attempt={i}/{len(attempts)} | base={uab} model={model} key={_key_prefix(uak)} | {type(e).__name__}: {e}")
             if i<len(attempts) and _is_auth_conn_error(e): continue
             break
-    raise last_err
+    raise RuntimeError(_friendly_error(last_err, ab))
 
 # SERPAPI
 def get_serpapi_keys():

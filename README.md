@@ -22,7 +22,7 @@ cd server
 cp .env.example .env   # chỉnh MONGODB_URI, JWT_SECRET, GEMINI_API_KEY...
 npm install
 npm run seed           # tạo admin + model mặc định
-npm start              # mặc định cổng 3001 (xem PORT trong .env)
+npm start              # mặc định cổng 3003 (khớp với LOCAL_API_BASE của app Streamlit)
 ```
 
 > App Streamlit mặc định gọi `http://localhost:3003/v1` — đổi `LOCAL_API_BASE`/`PORT` cho khớp nhau.
