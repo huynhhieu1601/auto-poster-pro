@@ -191,12 +191,13 @@ def parse_ai_response(response):
     return str(response)
 
 def generate_text(prompt, sp, ab, ak, pid, model, temp=0.7):
-    client=OpenAI(base_url=ab,api_key=ak,default_headers={"x-goog-project-id":pid})
+    hdrs={"x-goog-project-id":pid,"ngrok-skip-browser-warning":"true","User-Agent":"WPAutoPosterPRO/1.0"}
+    client=OpenAI(base_url=ab,api_key=ak if ak else "dummy_key",default_headers=hdrs)
     r=client.chat.completions.create(model=model,messages=[{"role":"system","content":sp},{"role":"user","content":prompt}],temperature=temp)
-    return parse_ai_response(r)  # ← FIXED LINE
+    return parse_ai_response(r)
 
 def generate_image(prompt,ab,ak,pid,model,n=1,size="1024x1024"):
-    h={"Authorization":f"Bearer {ak}","Content-Type":"application/json","x-goog-project-id":pid}
+    h={"Authorization":f"Bearer {ak}","Content-Type":"application/json","x-goog-project-id":pid,"ngrok-skip-browser-warning":"true","User-Agent":"WPAutoPosterPRO/1.0"}
     r=requests.post(f"{ab.rstrip('/')}/images/generations",json={"model":model,"prompt":prompt,"n":n,"size":size},headers=h,timeout=120)
     r.raise_for_status();return r.json().get("data",[])
 
@@ -250,25 +251,14 @@ def upload_image_to_wp(iu,wu,wu2,wp):
 
 # PIPELINE
 def run_full_pipeline(
-    keyword="",
-    brand_voice_prompt="",
-    word_count=1850,
-    wp_url="",
-    wp_username="",
-    wp_password="",
-    woo_ck="",
-    woo_cs="",
-    api_base="",
-    api_key="",
-    project_id="",
-    text_model="",
-    image_model="",
-    content_type="post",
-    schedule_dt=None,
-    serpapi_key=None,
+    keyword=None, brand_voice_prompt=None, word_count=None,
+    wp_url=None, wp_username=None, wp_password=None,
+    woo_ck=None, woo_cs=None,
+    api_base=None, api_key=None, project_id=None,
+    text_model=None, image_model=None,
+    content_type="post", schedule_dt=None, serpapi_key=None,
     **kwargs,
 ):
-    # Map keyword arguments to short names for internal use
     kw=keyword; bp=brand_voice_prompt; wc=word_count
     wu=wp_url; wu2=wp_username; wp=wp_password
     ck=woo_ck; cs=woo_cs
