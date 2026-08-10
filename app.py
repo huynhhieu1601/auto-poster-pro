@@ -249,7 +249,32 @@ def upload_image_to_wp(iu,wu,wu2,wp):
     mr.raise_for_status();rj=mr.json();return rj.get("id"),rj.get("source_url")
 
 # PIPELINE
-def run_full_pipeline(kw,bp,wc,wu,wu2,wp,ck,cs,ab,ak,pid,tm,im,ct="post",sdt=None,sk=None):
+def run_full_pipeline(
+    keyword="",
+    brand_voice_prompt="",
+    word_count=1850,
+    wp_url="",
+    wp_username="",
+    wp_password="",
+    woo_ck="",
+    woo_cs="",
+    api_base="",
+    api_key="",
+    project_id="",
+    text_model="",
+    image_model="",
+    content_type="post",
+    schedule_dt=None,
+    serpapi_key=None,
+    **kwargs,
+):
+    # Map keyword arguments to short names for internal use
+    kw=keyword; bp=brand_voice_prompt; wc=word_count
+    wu=wp_url; wu2=wp_username; wp=wp_password
+    ck=woo_ck; cs=woo_cs
+    ab=api_base; ak=api_key; pid=project_id
+    tm=text_model; im=image_model
+    ct=content_type; sdt=schedule_dt; sk=serpapi_key
     try:
         wc=int(wc) if wc else 1850;cc=""
         if sk is None:
