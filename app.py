@@ -69,6 +69,7 @@ def init_db():
         try: c.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT NOT NULL DEFAULT {defv}"); conn.commit()
         except: pass
     c.execute("CREATE TABLE IF NOT EXISTS user_settings(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,key TEXT NOT NULL,value TEXT,UNIQUE(user_id,key),FOREIGN KEY(user_id) REFERENCES users(id))")
+    c.execute("CREATE TABLE IF NOT EXISTS global_settings(key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')")
     c.execute("CREATE TABLE IF NOT EXISTS websites(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,site_name TEXT NOT NULL,wp_url TEXT NOT NULL DEFAULT '',wp_username TEXT NOT NULL DEFAULT '',wp_app_password TEXT NOT NULL DEFAULT '',woo_ck TEXT NOT NULL DEFAULT '',woo_cs TEXT NOT NULL DEFAULT '',brand_voice_prompt TEXT NOT NULL DEFAULT 'You are an expert SEO content writer.',created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(user_id) REFERENCES users(id))")
     c.execute("CREATE TABLE IF NOT EXISTS history(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,site_name TEXT DEFAULT '',keyword TEXT,date TEXT,status TEXT,content_type TEXT DEFAULT 'post',link TEXT,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(user_id) REFERENCES users(id))")
     conn.commit()
@@ -81,6 +82,17 @@ def init_db():
     if c.fetchone()["cnt"]==0:
         c.execute("INSERT INTO users(username,password_hash,role,credits) VALUES(?,?,?,?)",("admin",hashlib.sha256("admin123".encode()).hexdigest(),"admin",100000))
         conn.commit()
+    # Migration: nếu chưa có global_settings và admin từng lưu cấu hình AI khác mặc định → copy sang global
+    c.execute("SELECT COUNT(*) as cnt FROM global_settings")
+    if c.fetchone()["cnt"]==0:
+        c.execute("SELECT id FROM users WHERE username='admin' LIMIT 1");ar=c.fetchone()
+        if ar:
+            defaults={"local_api_base":LOCAL_API_BASE,"local_api_key":LOCAL_API_KEY,"local_project_id":LOCAL_PROJECT_ID,"local_model":LOCAL_MODEL,"local_image_model":LOCAL_IMAGE_MODEL,"serpapi_keys":DEFAULT_SERPAPI_KEY}
+            c.execute("SELECT key,value FROM user_settings WHERE user_id=? AND key LIKE 'local_%' OR (user_id=? AND key='serpapi_keys')",(ar["id"],ar["id"]))
+            for r in c.fetchall():
+                if defaults.get(r["key"])!=r["value"]:
+                    c.execute("INSERT OR IGNORE INTO global_settings(key,value) VALUES(?,?)",(r["key"],r["value"]))
+            conn.commit()
     conn.close()
 init_db()
 
@@ -528,6 +540,7 @@ def process_sheet_for_user(uid):
         ix_lnk=fc(hdrs,["link","url","link bài viết"])
         if ix_site==-1:ix_site=0; ix_kw==-1 and (ix_kw:=1); ix_ct==-1 and (ix_ct:=2); ix_pmpt==-1 and (ix_pmpt:=3)
         ix_wc==-1 and (ix_wc:=4); ix_date==-1 and (ix_date:=5); ix_time==-1 and (ix_time:=6); ix_st==-1 and (ix_st:=7); ix_lnk==-1 and (ix_lnk:=8)
+        gs=get_global_settings();s={**s,**gs}  # global settings (admin) ghi đè settings riêng user
         ab=s.get("local_api_base",LOCAL_API_BASE);ak=s.get("local_api_key",LOCAL_API_KEY);pid=s.get("local_project_id",LOCAL_PROJECT_ID)
         tm=s.get("local_model",LOCAL_MODEL);im=s.get("local_image_model",LOCAL_IMAGE_MODEL)
         proc=0
@@ -612,11 +625,24 @@ if not st.session_state.logged_in:
     st.markdown('</div>',unsafe_allow_html=True);st.stop()
 
 start_background_worker()
+# ============================================================
+# GLOBAL SETTINGS — chia sẻ cấu hình AI cho toàn bộ hệ thống
+# (Global Settings do admin thiết lập, mọi user đều dùng được,
+#  không bị kẹt ở default localhost khi admin đã cấu hình URL public)
+# ============================================================
+def save_global_setting(k,v):
+    conn=get_db();c=conn.cursor()
+    c.execute("INSERT INTO global_settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(k,str(v)))
+    conn.commit();conn.close()
+def get_global_settings():
+    conn=get_db();c=conn.cursor();c.execute("SELECT key,value FROM global_settings");rows=c.fetchall();conn.close()
+    return {r["key"]:r["value"] for r in rows}
 def load_global_settings():
-    if st.session_state.user_id:
-        s=get_all_user_settings(st.session_state.user_id)
-        for k,d in[("local_api_base",LOCAL_API_BASE),("local_api_key",LOCAL_API_KEY),("local_project_id",LOCAL_PROJECT_ID),("local_model",LOCAL_MODEL),("local_image_model",LOCAL_IMAGE_MODEL),("serpapi_keys",DEFAULT_SERPAPI_KEY),("gsheet_url",""),("gsheet_sa_json","")]:
-            if k not in st.session_state or not st.session_state.get(k): st.session_state[k]=s.get(k,d)
+    # Thứ tự ưu tiên: Global Settings (admin) > settings riêng user > mặc định hệ thống
+    gs=get_global_settings()
+    s=get_all_user_settings(st.session_state.user_id) if st.session_state.user_id else {}
+    for k,d in[("local_api_base",LOCAL_API_BASE),("local_api_key",LOCAL_API_KEY),("local_project_id",LOCAL_PROJECT_ID),("local_model",LOCAL_MODEL),("local_image_model",LOCAL_IMAGE_MODEL),("serpapi_keys",DEFAULT_SERPAPI_KEY),("gsheet_url",""),("gsheet_sa_json","")]:
+        st.session_state[k]=gs.get(k) or s.get(k) or d
 load_global_settings();uid=st.session_state.user_id
 
 # SIDEBAR
@@ -773,7 +799,7 @@ elif st.session_state.nav_view=="⚙️ Global Settings":
         st.markdown("#### Local AI API");c1,c2=st.columns(2)
         with c1: lab=st.text_input("API Base URL",value=st.session_state.get("local_api_base",LOCAL_API_BASE));lak=st.text_input("API Key",value=st.session_state.get("local_api_key",LOCAL_API_KEY),type="password");lpi=st.text_input("Project ID",value=st.session_state.get("local_project_id",LOCAL_PROJECT_ID))
         with c2: ltm=st.text_input("Text Model",value=st.session_state.get("local_model",LOCAL_MODEL));lim=st.text_input("Image Model",value=st.session_state.get("local_image_model",LOCAL_IMAGE_MODEL));sk_=st.text_area("SerpApi Keys",value=st.session_state.get("serpapi_keys",DEFAULT_SERPAPI_KEY),height=100,placeholder="One key per line")
-        for k,v in[("local_api_base",lab),("local_api_key",lak),("local_project_id",lpi),("local_model",ltm),("local_image_model",lim),("serpapi_keys",sk_)]: st.session_state[k]=v;save_user_setting(uid,k,v)
+        for k,v in[("local_api_base",lab),("local_api_key",lak),("local_project_id",lpi),("local_model",ltm),("local_image_model",lim),("serpapi_keys",sk_)]: st.session_state[k]=v;save_global_setting(k,v)
     with tg:
         st.markdown("#### Google Sheets Automation");gu=st.text_input("Sheet URL or ID",value=st.session_state.get("gsheet_url",""),placeholder="https://docs.google.com/spreadsheets/d/...");st.session_state["gsheet_url"]=gu;save_user_setting(uid,"gsheet_url",gu)
         st.markdown("##### Service Account JSON");sf=st.file_uploader("Upload JSON key",type=["json"],key="gs_sa_up")
