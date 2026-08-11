@@ -26,6 +26,7 @@ const adminUserApiKeysRoutes = require('./routes/admin/userApiKeys');
 const userApiKeysRoutes = require('./routes/api/apiKeys');
 const modelsRoutes = require('./routes/api/models');
 const proxyRoutes = require('./routes/api/proxy');
+const scheduleRoutes = require('./routes/schedule');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -66,6 +67,9 @@ app.use('/api/models', modelsRoutes);
 
 // === Proxy API (OpenAI-compatible) ===
 app.use('/v1', proxyRoutes);
+
+// === Lên lịch đăng bài → Google Sheet ===
+app.use('/api/v1/schedule', scheduleRoutes);
 
 // === Admin Routes ===
 app.use('/admin', adminDashboardRoutes);

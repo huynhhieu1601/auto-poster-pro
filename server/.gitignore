@@ -1,5 +1,6 @@
 node_modules/
 .env
+service-account.json
 scratch/
 public/uploads/images/*
 public/uploads/videos/*
