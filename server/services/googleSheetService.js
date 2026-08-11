@@ -14,11 +14,12 @@ const fs = require('fs');
 const { google } = require('googleapis');
 
 const SHEET_ID = process.env.GOOGLE_SHEET_ID || '16TMNNZRF6kzyDNYZU4L_FZtyX16qPcACuhJ6HxGJrSg';
-// Ưu tiên: env → server/service-account.json → fallback: service_account.json ở gốc repo
+// Ưu tiên: env → service_account.json ở gốc repo (được commit, luôn có khi deploy)
+//          → server/service-account.json
 const CREDENTIAL_CANDIDATES = [
     process.env.GOOGLE_SERVICE_ACCOUNT_FILE,
-    path.join(__dirname, '..', 'service-account.json'),
-    path.join(__dirname, '..', '..', 'service_account.json')
+    path.join(__dirname, '..', '..', 'service_account.json'),
+    path.join(__dirname, '..', 'service-account.json')
 ].filter(Boolean);
 const SHEET_NAME = process.env.GOOGLE_SHEET_NAME || 'Sheet1';
 const SCOPE = ['https://www.googleapis.com/auth/spreadsheets'];
