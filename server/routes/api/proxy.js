@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const proxyAuth = require('../../middleware/proxyAuth');
 const agentPlatform = require('../../services/agentPlatform');
+const brightDataService = require('../../services/brightDataService');
 const ModelConfig = require('../../models/ModelConfig');
 const { v4: uuidv4 } = require('uuid');
 
@@ -197,6 +198,22 @@ router.post('/chat/completions', async (req, res) => {
 
         // Gemini history là tất cả messages trước prompt cuối
         const geminiHistory = lastUserIndex >= 0 ? history.slice(0, lastUserIndex) : history.slice(0, -1);
+
+        // ==========================================
+        // GROUNDING: Bright Data SERP — dữ liệu tra cứu thời gian thực trước khi sinh bài
+        // ==========================================
+        try {
+            const grounding = await brightDataService.getRealtimeProductData(prompt);
+            if (grounding) {
+                systemPrompt = (systemPrompt ? systemPrompt + '\n\n' : '') +
+                    '=== DỮ LIỆU TRA CỨU THỰC TẾ (Bright Data SERP) — ƯU TIÊN 100% ===\n' +
+                    grounding +
+                    '\n\nYêu cầu khi viết bài: Ưu tiên 100% thông số kỹ thuật và giá bán lấy từ dữ liệu tra cứu bên trên. TUYỆT ĐỐI không tự bịa đặt thông số hoặc giá bán (anti-hallucination). Nếu thông số/giá không có trong dữ liệu thì ghi rõ "không xác định".';
+                console.log(`[proxy][chat/completions] Grounding: thêm ${grounding.length} ký tự dữ liệu SERP thời gian thực cho prompt "${String(prompt).slice(0, 60)}".`);
+            }
+        } catch (e) {
+            console.error('[proxy][chat/completions] Lỗi Bright Data grounding:', e.message);
+        }
 
         if (stream) {
             // === Streaming (SSE) ===
