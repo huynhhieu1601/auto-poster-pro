@@ -14,17 +14,19 @@ const fs = require('fs');
 const { google } = require('googleapis');
 
 const SHEET_ID = process.env.GOOGLE_SHEET_ID || '16TMNNZRF6kzyDNYZU4L_FZtyX16qPcACuhJ6HxGJrSg';
-// Ưu tiên: env → service_account.json ở gốc repo (được commit, luôn có khi deploy)
-//          → server/service-account.json
+// Ưu tiên: env → service-account.json ở gốc repo (vertex-express, mới nhất)
+//          → service_account.json ở gốc repo → server/service-account.json
 const CREDENTIAL_CANDIDATES = [
     process.env.GOOGLE_SERVICE_ACCOUNT_FILE,
+    path.join(__dirname, '..', '..', 'service-account.json'),
     path.join(__dirname, '..', '..', 'service_account.json'),
     path.join(__dirname, '..', 'service-account.json')
 ].filter(Boolean);
-const SHEET_NAME = process.env.GOOGLE_SHEET_NAME || 'Sheet1';
+const SHEET_NAME = process.env.GOOGLE_SHEET_NAME || 'Trang tính1'; // tab thực tế (default "Sheet1" của Google VN)
 const SCOPE = ['https://www.googleapis.com/auth/spreadsheets'];
 
 let _sheetsClient = null;
+let _sheetName = SHEET_NAME;
 
 /** Tìm file credentials đầu tiên tồn tại trên đĩa. */
 function resolveCredentialsPath() {
@@ -37,21 +39,52 @@ function resolveCredentialsPath() {
 }
 
 /**
- * Khởi tạo (lazy) Google Sheets client từ file service-account.json.
+ * Khởi tạo (lazy) Google Sheets client.
+ * Credentials ưu tiên: env GOOGLE_SERVICE_ACCOUNT_JSON (raw JSON) → file service-account.json
+ * (gốc repo hoặc server/). Tự dò tab: nếu SHEET_NAME không tồn tại → tab đầu tiên.
  * @returns {Promise<object>} google.sheets({ version:'v4' })
  */
 async function getSheetsClient() {
     if (_sheetsClient) return _sheetsClient;
-    const keyFile = resolveCredentialsPath();
-    if (!keyFile) {
-        throw new Error('Không tìm thấy file service-account.json (server/service-account.json hoặc service_account.json gốc).');
+
+    let auth;
+    const envJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+    if (envJson && envJson.trim()) {
+        try {
+            // Dùng cho deploy (Streamlit Cloud Secrets) — không cần commit file key
+            auth = new google.auth.GoogleAuth({
+                credentials: JSON.parse(envJson),
+                scopes: SCOPE,
+            });
+        } catch (e) {
+            console.error('[googleSheetService] GOOGLE_SERVICE_ACCOUNT_JSON không hợp lệ:', e.message);
+            throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON không phải JSON hợp lệ của service account.');
+        }
+    } else {
+        const keyFile = resolveCredentialsPath();
+        if (!keyFile) {
+            throw new Error('Không tìm thấy file service-account.json (gốc repo hoặc server/) hoặc biến GOOGLE_SERVICE_ACCOUNT_JSON.');
+        }
+        auth = new google.auth.GoogleAuth({
+            keyFile,
+            scopes: SCOPE,
+        });
     }
-    const auth = new google.auth.GoogleAuth({
-        keyFile,
-        scopes: SCOPE,
-    });
+
     const authClient = await auth.getClient();
     _sheetsClient = google.sheets({ version: 'v4', auth: authClient });
+
+    // Dò tên tab thực tế (mặc định 'Sheet1' của Google VN là 'Trang tính1')
+    try {
+        const meta = await _sheetsClient.spreadsheets.get({ spreadsheetId: SHEET_ID });
+        const tabs = (meta.data.sheets || []).map(s => s.properties && s.properties.title).filter(Boolean);
+        if (tabs.length && !tabs.includes(_sheetName)) {
+            console.warn(`[googleSheetService] Không tìm thấy tab "${_sheetName}", tự dùng tab đầu tiên "${tabs[0]}".`);
+            _sheetName = tabs[0];
+        }
+    } catch (e) {
+        console.warn('[googleSheetService] Không đọc được danh sách tab, giữ mặc định:', e.message);
+    }
     return _sheetsClient;
 }
 
@@ -63,7 +96,7 @@ async function getSheetValues(range = 'A:L') {
         const sheets = await getSheetsClient();
         const res = await sheets.spreadsheets.values.get({
             spreadsheetId: SHEET_ID,
-            range: `${SHEET_NAME}!${range}`,
+            range: `${_sheetName}!${range}`,
         });
         return res.data.values || [];
     } catch (error) {
@@ -82,7 +115,7 @@ async function getNextStt() {
         const sheets = await getSheetsClient();
         const res = await sheets.spreadsheets.values.get({
             spreadsheetId: SHEET_ID,
-            range: `${SHEET_NAME}!A:A`,
+            range: `${_sheetName}!A:A`,
         });
         const rows = res.data.values || [];
         let max = 0;
@@ -136,13 +169,13 @@ async function appendScheduleToSheet(postData) {
         const sheets = await getSheetsClient();
         const res = await sheets.spreadsheets.values.append({
             spreadsheetId: SHEET_ID,
-            range: `${SHEET_NAME}!A:L`,
+            range: `${_sheetName}!A:L`,
             valueInputOption: 'USER_ENTERED',
             insertDataOption: 'INSERT_ROWS',
             requestBody: { values },
         });
         const updatedRange = res.data.updates && res.data.updates.updatedRange;
-        console.log(`[googleSheetService] ✅ Đã ghi lịch vào Google Sheet (${updatedRange || SHEET_NAME}) cho "${data.keyword || ''}".`);
+        console.log(`[googleSheetService] ✅ Đã ghi lịch vào Google Sheet (${updatedRange || _sheetName}) cho "${data.keyword || ''}".`);
         return { success: true, updatedRange };
     } catch (error) {
         // Bọc try-catch: log rõ lỗi (mạng / quyền truy cập / sai scope)
