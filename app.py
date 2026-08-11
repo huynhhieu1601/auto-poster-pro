@@ -18,6 +18,10 @@ import pandas as pd
 import time
 import threading
 import schedule as schedule_lib
+try:
+    import linker  # auto internal-link inserter (linker.py)
+except Exception:
+    linker=None
 
 DB_FILE = "/tmp/autoposter_data.db"
 LOCAL_API_BASE = "http://localhost:3003/v1"
@@ -532,6 +536,10 @@ def run_full_pipeline(
             except: pass
         # Chuẩn hoá JSON-LD: chỉ giữ JSON thuần { ... } (bỏ const ... =, dấu ';' cuối)
         html=clean_jsonld_schema(html)
+        # Tự động chèn 2-5 internal link chuẩn SEO từ sitemap hieutaphoa.com
+        if linker is not None:
+            try: html=linker.auto_insert_links(html)
+            except Exception as e: api_log(f"auto_insert_links LỖI: {e}")
         if sdt is None: sdt=datetime.now()
         ps='future' if sdt>datetime.now() else 'publish'
         if ct=="product":
