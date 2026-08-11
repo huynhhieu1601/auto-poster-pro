@@ -132,8 +132,31 @@ for k,v in {"generated_outline":"","logged_in":False,"user_id":None,"username":"
 
 # AUTH
 def hash_password(pw): return hashlib.sha256(pw.encode()).hexdigest()
+def vn_tz():
+    try:
+        import pytz
+        return pytz.timezone("Asia/Ho_Chi_Minh")
+    except Exception:
+        return None
+def vn_now():
+    """Giờ Việt Nam hiện tại (UTC+7), dạng naive wall-clock — dùng cho lịch đăng & log."""
+    tz=vn_tz()
+    if tz is not None:
+        try: return datetime.now(tz).replace(tzinfo=None)
+        except Exception: pass
+    return datetime.now()
+def is_future(dt_):
+    """True nếu dt_ (naive = giờ VN hoặc aware) nằm trong tương lai so với giờ VN hiện tại."""
+    if dt_ is None: return False
+    tz=vn_tz()
+    try:
+        if tz is not None and dt_.tzinfo is None: dt_=tz.localize(dt_)
+        now=datetime.now(tz) if tz is not None else datetime.now()
+        return dt_>now
+    except Exception:
+        return False
 def api_log(msg):
-    try: print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}",flush=True)
+    try: print(f"[{vn_now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}",flush=True)
     except Exception: print(msg,flush=True)
 def new_session_token(): return secrets.token_hex(32)
 def get_user_by_session_token(tok):
@@ -541,8 +564,8 @@ def run_full_pipeline(
         if linker is not None:
             try: html=linker.auto_insert_links(html)
             except Exception as e: api_log(f"auto_insert_links LỖI: {e}")
-        if sdt is None: sdt=datetime.now()
-        ps='future' if sdt>datetime.now() else 'publish'
+        if sdt is None: sdt=vn_now()
+        ps='future' if is_future(sdt) else 'publish'
         if ct=="product":
             if not ck or not cs: return (title,html,"",fmid,"WooCommerce keys missing.")
             sd="";fp=soup.find('p')
@@ -566,7 +589,7 @@ def run_full_pipeline(
 # WORKER
 WORKER_LOGS=[]
 def worker_log(msg):
-    ts=datetime.now().strftime("%Y-%m-%d %H:%M:%S");entry=f"[{ts}] {msg}"
+    ts=vn_now().strftime("%Y-%m-%d %H:%M:%S");entry=f"[{ts}] {msg}"
     WORKER_LOGS.append(entry)
     if len(WORKER_LOGS)>100: WORKER_LOGS.pop(0)
     print(entry)
@@ -611,7 +634,7 @@ def dashboard_trigger_now(uid):
     try:
         import requests as _rq
         base=st.session_state.get("local_api_base",LOCAL_API_BASE).replace("/v1","").rstrip("/")
-        rr=_rq.post(f"{base}/api/v1/schedule",json={"title":"🚀 Dashboard trigger","status":"Scheduled","publishDate":datetime.now().strftime("%Y-%m-%d")},timeout=5)
+        rr=_rq.post(f"{base}/api/v1/schedule",json={"title":"🚀 Dashboard trigger","status":"Scheduled","publishDate":vn_now().strftime("%Y-%m-%d")},timeout=5)
         if rr.ok:
             return f"Đã gọi backend {base}/api/v1/schedule thành công"
     except Exception:
@@ -700,11 +723,11 @@ def process_sheet_for_user(uid):
             if cv not in["post","product"]: cv="post"
             ds=str(row[ix_date]).strip() if ix_date<len(row) else "";ts_=str(row[ix_time]).strip() if ix_time<len(row) else ""
             sdt,hs=parse_schedule_date(ds,ts_)
-            if sdt is None and hs: worker_log(f"⚠️ Row {ri+1}: Cannot parse '{ds} {ts_}' for '{kv}'. Posting immediately.");sdt=datetime.now();hs=False
-            if sdt is None: sdt=datetime.now();hs=False
+            if sdt is None and hs: worker_log(f"⚠️ Row {ri+1}: Cannot parse '{ds} {ts_}' for '{kv}'. Posting immediately.");sdt=vn_now();hs=False
+            if sdt is None: sdt=vn_now();hs=False
             import pytz;vtz=pytz.timezone("Asia/Ho_Chi_Minh");now_vn=datetime.now(vtz)
             if hs and sdt.tzinfo is None: sdt=vtz.localize(sdt)
-            if hs and sdt>now_vn:
+            if hs and is_future(sdt):
                 tr=sdt-now_vn;worker_log(f"⏳ Skipping '{kv}', scheduled for {sdt.strftime('%Y-%m-%d %H:%M')} ICT, current time is {now_vn.strftime('%Y-%m-%d %H:%M')} ICT ({int(tr.total_seconds()//3600)}h {int((tr.total_seconds()%3600)//60)}m remaining), waiting...");continue
             worker_log(f"🔄 Row {ri+1}: '{kv}' → {site['site_name']} ({cv})")
             try: ws.update_cell(ri+1,ix_st+1,"Processing...")
@@ -712,7 +735,7 @@ def process_sheet_for_user(uid):
             _,_,link,_,err=run_full_pipeline(keyword=kv,brand_voice_prompt=bp,word_count=wv,wp_url=site["wp_url"],wp_username=site["wp_username"],wp_password=site["wp_app_password"],woo_ck=site["woo_ck"],woo_cs=site["woo_cs"],api_base=ab,api_key=ak,project_id=pid,text_model=tm,image_model=im,content_type=cv,schedule_dt=sdt,serpapi_key=None)
             if err is None and link:
                 ws.update_cell(ri+1,ix_st+1,"Success");ws.update_cell(ri+1,ix_lnk+1,link)
-                save_history_entry(uid,site["site_name"],kv,sdt.strftime("%Y-%m-%d %H:%M"),'future' if sdt>datetime.now() else 'publish',cv,link)
+                save_history_entry(uid,site["site_name"],kv,sdt.strftime("%Y-%m-%d %H:%M"),'future' if is_future(sdt) else 'publish',cv,link)
                 worker_log(f"✅ Posted: '{kv}' → {link}");proc+=1
             else:
                 em=err or "Unknown error";ws.update_cell(ri+1,ix_st+1,f"Error: {em[:80]}");worker_log(f"❌ Failed: '{kv}' → {em[:120]}")
@@ -816,7 +839,7 @@ if st.session_state.nav_view=="🚀 Content Generator":
             ct=st.radio("Content Type",["post","product"],format_func=lambda x:"📝 Blog Post" if x=="post" else "🛒 Woo Product",horizontal=True,key="gen_ct")
             st.markdown("##### 📅 Schedule");cd,ct2=st.columns(2)
             with cd: sd=st.date_input("Date",key="gen_date")
-            with ct2: st2=st.time_input("Time",key="gen_time")
+            with ct2: st2=st.time_input("Time",value=vn_now().time(),key="gen_time")
         with c1:
             kw=st.text_input("🔑 Primary Keyword",placeholder="e.g. Best SEO Strategies 2026")
             if st.button("✨ Generate SEO Outline (SerpApi)",use_container_width=True):
@@ -853,7 +876,7 @@ if st.session_state.nav_view=="🚀 Content Generator":
                                 if err is None and link:
                                     deduct_user_credit(uid,cpp);st.success(f"✅ Published to {ssn}!")
                                     st.markdown(f"[View {ct.capitalize()}]({link})")
-                                    save_history_entry(uid,ssn,kw,dt.strftime("%Y-%m-%d %H:%M"),'future' if dt>datetime.now() else 'publish',ct,link)
+                                    save_history_entry(uid,ssn,kw,dt.strftime("%Y-%m-%d %H:%M"),'future' if is_future(dt) else 'publish',ct,link)
                                     st.session_state.generated_outline="";st.rerun()
                                 else: st.error(f"Failed: {err}")
                             except Exception as e: st.error(f"Error: {e}")

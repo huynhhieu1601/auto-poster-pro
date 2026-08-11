@@ -1,5 +1,6 @@
 import logging
 import datetime
+import pytz
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 import gspread
@@ -34,7 +35,7 @@ async def viet_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         content_type = parts[2] if len(parts) > 2 else "post"
         word_count = parts[3] if len(parts) > 3 else "1500"
         
-        now = datetime.datetime.now()
+        now = datetime.datetime.now(pytz.timezone("Asia/Ho_Chi_Minh"))  # giờ VN (UTC+7), không lệch khi server chạy UTC
         post_date = parts[4] if len(parts) > 4 and parts[4] else now.strftime("%Y-%m-%d")
         post_time = parts[5].strip(". ") if len(parts) > 5 and parts[5] else now.strftime("%H:%M")
         
