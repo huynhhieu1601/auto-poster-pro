@@ -22,6 +22,7 @@ try:
     import linker  # auto internal-link inserter (linker.py)
 except Exception:
     linker=None
+import dashboard  # Dashboard hiệu suất (dashboard.py)
 
 DB_FILE = "/tmp/autoposter_data.db"
 LOCAL_API_BASE = "http://localhost:3003/v1"
@@ -570,6 +571,56 @@ def worker_log(msg):
     if len(WORKER_LOGS)>100: WORKER_LOGS.pop(0)
     print(entry)
 def get_gsheet_client(sa): import gspread; return gspread.service_account_from_dict(json.loads(sa))
+def load_sheet_dataframe():
+    """Đọc Google Sheet (Trang tính1) → DataFrame 12 cột chuẩn cho Dashboard."""
+    saj=st.session_state.get("gsheet_sa_json","");surl=st.session_state.get("gsheet_url","")
+    if not saj or not surl: return pd.DataFrame()
+    try:
+        import gspread
+        gc=get_gsheet_client(saj)
+        try: sh=gc.open_by_url(surl)
+        except: sh=gc.open_by_key(surl)
+        ws=None
+        try:
+            ws=sh.worksheet("Trang tính1")
+        except Exception:
+            ws=sh.sheet1
+        av=ws.get_all_values()
+        if not av: return pd.DataFrame()
+        std=["STT","Tên Website","Từ khoá chính","Loại nội dung","Prompt","Số từ viết","Ngày đăng","Giờ đăng","Trạng thái","Link bài viết","Audit","Internal Link"]
+        hdrs=[str(h).strip().lower() for h in av[0]]
+        def fc(nd):
+            for i,h in enumerate(hdrs):
+                for n in nd:
+                    if n in h: return i
+            return -1
+        cols=[fc([c.lower()]) for c in std]
+        rows=[]
+        for r in av[1:]:
+            if not any(str(x).strip() for x in r): continue  # bỏ dòng trống
+            row=[]
+            for c in cols:
+                row.append(r[c] if 0<=c<len(r) else "")
+            rows.append(row)
+        return pd.DataFrame(rows,columns=std)
+    except Exception as e:
+        st.error(f"⚠️ Không đọc được Google Sheet: {e}")
+        return pd.DataFrame()
+def dashboard_trigger_now(uid):
+    """Nút 🚀 Kích hoạt chạy Lịch ngay: gọi Backend Node.js trước, fallback chạy worker local."""
+    try:
+        import requests as _rq
+        base=st.session_state.get("local_api_base",LOCAL_API_BASE).replace("/v1","").rstrip("/")
+        rr=_rq.post(f"{base}/api/v1/schedule",json={"title":"🚀 Dashboard trigger","status":"Scheduled","publishDate":datetime.now().strftime("%Y-%m-%d")},timeout=5)
+        if rr.ok:
+            return f"Đã gọi backend {base}/api/v1/schedule thành công"
+    except Exception:
+        pass
+    try:
+        count=process_sheet_for_user(uid)
+        return f"Đã quét & xử lý {count} dòng lịch ngay lập tức"
+    except Exception as e:
+        return f"Lỗi khi kích hoạt: {e}"
 def parse_schedule_date(ds,ts_):
     import pytz; vtz=pytz.timezone("Asia/Ho_Chi_Minh")
     ds=str(ds).strip() if ds else ""; ts_=str(ts_).strip() if ts_ else ""
@@ -735,7 +786,7 @@ with st.sidebar:
     st.markdown("""<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;padding-left:8px"><div style="background:#0d9488;color:white;padding:10px;border-radius:14px;font-weight:bold">⚡</div><div><h3 style="margin:0;font-size:18px;font-weight:800;color:#0f172a">AutoPoster <span style="font-size:11px;background:#ccfbf1;color:#0f766e;padding:2px 6px;border-radius:6px">PRO</span></h3><p style="margin:0;font-size:12px;color:#64748b">Công cụ tự động hóa nội dung</p></div></div>""",unsafe_allow_html=True)
     cu=str(st.session_state.get('username','')).lower();cr=str(st.session_state.get('user_role','')).lower();is_admin=(cu=='admin') or (cr=='admin')
     st.markdown('<div class="larkeyword-card">',unsafe_allow_html=True)
-    mo=["🚀 Content Generator","🌐 Website Manager"]
+    mo=["🚀 Content Generator","📊 Dashboard","🌐 Website Manager"]
     if is_admin: mo.append("⚙️ Global Settings")
     if not is_admin and st.session_state.nav_view=="⚙️ Global Settings": st.session_state.nav_view="🚀 Content Generator"
     view=st.radio("Navigation",mo,label_visibility="collapsed");st.session_state.nav_view=view
@@ -838,6 +889,19 @@ if st.session_state.nav_view=="🚀 Content Generator":
         if "link" in df.columns: df["Link"]=df["link"]
         cols=[c for c in["Site","Keyword","Type","Date & Time","Status","Link"] if c in df.columns]
         if cols: st.dataframe(df[cols],column_config={"Site":st.column_config.TextColumn("Site",width="small"),"Keyword":st.column_config.TextColumn("Keyword",width="medium"),"Type":st.column_config.TextColumn("Type",width="small"),"Date & Time":st.column_config.TextColumn("Date",width="small"),"Status":st.column_config.TextColumn("Status",width="small"),"Link":st.column_config.LinkColumn("Link",width="small",display_text="View")},hide_index=True,use_container_width=True)
+
+# VIEW 1.5 — DASHBOARD HIỆU SUẤT
+elif st.session_state.nav_view=="📊 Dashboard":
+    st.markdown("""<div class="header-banner"><h1>📊 Dashboard Hiệu Suất</h1><p>Hệ thống theo dõi hiệu suất Auto Poster Pro từ Google Sheet (Trang tính1)</p></div>""",unsafe_allow_html=True)
+    if not st.session_state.get("gsheet_sa_json") or not st.session_state.get("gsheet_url"):
+        st.warning("⚠️ Vui lòng cấu hình Google Sheets (Service Account JSON + Sheet URL) trong ⚙️ Global Settings trước.")
+    else:
+        with st.spinner("Đang tải dữ liệu từ Google Sheet..."):
+            try:
+                df_dash=load_sheet_dataframe()
+            except Exception as e:
+                st.error(f"Lỗi đọc Google Sheet: {e}");df_dash=pd.DataFrame()
+        dashboard.render_dashboard(df_dash, on_refresh=load_sheet_dataframe, on_trigger=lambda: dashboard_trigger_now(uid))
 
 # VIEW 2
 elif st.session_state.nav_view=="🌐 Website Manager":
