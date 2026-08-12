@@ -30,19 +30,23 @@ _PENDING_STATUS = {"pending", "scheduled", "chưa đăng", "chua dang", "process
 
 _CSS = """
 <style>
+/* Lumina SaaS — Pure Light / Glassmorphism (xem DESIGN.md) */
 .kpi-row{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:18px}
-.kpi-card{flex:1 1 210px;min-width:200px;background:var(--background-color,#fff);
-  border:1px solid var(--border-color,#e2e8f0);border-radius:16px;padding:16px 18px;
-  box-shadow:0 4px 14px -6px rgba(0,0,0,.08);border-top:4px solid #7C3AED;position:relative}
-.kpi-card.c2{border-top-color:#0ea5e9}.kpi-card.c3{border-top-color:#10b981}.kpi-card.c4{border-top-color:#f59e0b}
+.kpi-card{flex:1 1 210px;min-width:200px;background:rgba(255,255,255,.8);
+  backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);
+  border:1px solid rgba(30,41,59,.05);border-radius:1rem;padding:20px 22px;
+  box-shadow:0 8px 30px rgba(0,0,0,.04);position:relative;border-top:4px solid #0d9488;transition:all .2s ease}
+.kpi-card:hover{box-shadow:0 14px 40px rgba(0,0,0,.08)}
+.kpi-card.c2{border-top-color:#0d9488}.kpi-card.c3{border-top-color:#7c3aed}.kpi-card.c4{border-top-color:#f59e0b}
 .kpi-icon{font-size:20px;position:absolute;top:14px;right:16px;opacity:.85}
-.kpi-label{font-size:12px;text-transform:uppercase;letter-spacing:.4px;color:var(--text-color,#64748b);font-weight:600}
-.kpi-value{font-size:26px;font-weight:800;color:var(--text-color,#0f172a);margin:4px 0 0;line-height:1.1}
-.kpi-sub{font-size:12px;color:var(--text-color,#94a3b8);margin-top:6px}
-.health-chip{display:inline-flex;align-items:center;gap:8px;background:var(--background-color,#fff);
-  border:1px solid var(--border-color,#e2e8f0);border-radius:999px;padding:8px 16px;font-size:13px;font-weight:600;margin:4px 8px 4px 0}
+.kpi-label{font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#64748b;font-weight:600}
+.kpi-value{font-size:26px;font-weight:800;color:#1e293b;margin:4px 0 0;line-height:1.1;letter-spacing:-0.01em}
+.kpi-sub{font-size:12px;color:#94a3b8;margin-top:6px}
+.health-chip{display:inline-flex;align-items:center;gap:8px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;
+  background:rgba(255,255,255,.8);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border:1px solid rgba(30,41,59,.05);border-radius:9999px;padding:8px 16px;margin:4px 8px 4px 0;color:#334155;box-shadow:0 4px 16px rgba(0,0,0,.04)}
 .dot{width:10px;height:10px;border-radius:50%;display:inline-block}
-.dot-ok{background:#10b981;box-shadow:0 0 0 3px rgba(16,185,129,.2)}
+.dot-ok{background:#0d9488;box-shadow:0 0 0 3px rgba(13,148,136,.2)}
 .dot-warn{background:#f59e0b;box-shadow:0 0 0 3px rgba(245,158,11,.2)}
 .dot-bad{background:#ef4444;box-shadow:0 0 0 3px rgba(239,68,68,.2)}
 </style>

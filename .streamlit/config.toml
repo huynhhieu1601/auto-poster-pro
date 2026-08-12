@@ -1,0 +1,16 @@
+# ============================================================
+# Lumina SaaS — Streamlit Theme (xem DESIGN.md)
+# Pure Light / Glassmorphism: teal #0d9488, purple #7c3aed
+# ============================================================
+[theme]
+primaryColor = "#0d9488"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f8fafc"
+textColor = "#1e293b"
+font = "sans serif"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false

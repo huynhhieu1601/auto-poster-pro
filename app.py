@@ -42,31 +42,66 @@ DEFAULT_SERPAPI_KEY = "eb7a6f72642ad4ffd0dc63c39e2a129d577825b86837b56a4bd86ca23
 
 st.set_page_config(page_title="WP Auto-Poster PRO", page_icon="✨", layout="wide", initial_sidebar_state="expanded")
 
-# CSS (kept minimal — your existing CSS is preserved in the original file)
+# ============================================================
+# LUMINA SAAS DESIGN SYSTEM — Pure Light / Glassmorphism
+# (Xem DESIGN.md: teal #0d9488, purple #7c3aed, Hanken Grotesk + JetBrains Mono)
+# ============================================================
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-html, body, [class*="st-"]{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif}
-[data-testid="stSidebar"]{background-color:#f8fafc!important;min-width:340px!important;max-width:360px!important;border-right:1px solid #e2e8f0!important}
+@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+html, body, [class*="st-"]{font-family:'Hanken Grotesk',-apple-system,BlinkMacSystemFont,sans-serif;color:#1e293b;background:#ffffff}
+h1,h2,h3,h4,h5,h6{color:#1e293b!important;letter-spacing:-0.01em}
+[data-testid="stMarkdown"] p{color:#334155}
+
+/* --- Sidebar (Glass Nav, blur 20px) --- */
+[data-testid="stSidebar"]{background:rgba(255,255,255,.72)!important;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-right:1px solid rgba(30,41,59,.05)!important;min-width:340px!important;max-width:360px!important;box-shadow:0 8px 30px rgba(0,0,0,.04)}
 [data-testid="stSidebar"]>div:first-child{padding:1.5rem 1rem!important}
 [data-testid="stSidebar"] *{word-break:normal!important;white-space:normal!important}
-.larkeyword-card{background-color:#fff;border-radius:24px;padding:20px 16px;box-shadow:0 10px 30px -5px rgba(0,0,0,0.05);border:1px solid #e2e8f0;margin-bottom:16px}
 [data-testid="stSidebar"] div[role="radiogroup"]{gap:8px}
-[data-testid="stSidebar"] div[role="radiogroup"] label{background-color:transparent!important;border-radius:12px!important;padding:10px 16px!important;border:1px solid transparent!important;transition:all .2s ease!important;font-weight:500!important;color:#334155!important;cursor:pointer!important}
-[data-testid="stSidebar"] div[role="radiogroup"] label:hover{background-color:#f1f5f9!important}
-[data-testid="stSidebar"] div[role="radiogroup"] label[data-checked="true"]{background-color:#ccfbf1!important;color:#0f766e!important;font-weight:700!important}
+[data-testid="stSidebar"] div[role="radiogroup"] label{background:rgba(255,255,255,.6)!important;border-radius:12px!important;padding:11px 16px!important;border:1px solid rgba(30,41,59,.06)!important;transition:all .2s ease!important;font-weight:600!important;color:#334155!important;cursor:pointer!important}
+[data-testid="stSidebar"] div[role="radiogroup"] label:hover{background:#f0fdfa!important;box-shadow:0 4px 14px rgba(13,148,136,.12)!important}
+[data-testid="stSidebar"] div[role="radiogroup"] label[data-checked="true"]{background:#ccfbf1!important;color:#0f766e!important;font-weight:700!important;border-color:rgba(13,148,136,.3)!important}
 [data-testid="stSidebar"] div[role="radiogroup"] label>div:first-child{display:none!important}
-.balance-box{background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);color:#fff;border-radius:16px;padding:16px;margin-bottom:12px}
-.bank-box{background:#f8fafc;border:1px dashed #cbd5e1;border-radius:14px;padding:14px;font-size:13px;color:#334155}
-.header-banner{background:linear-gradient(135deg,#6D28D9 0%,#7C3AED 50%,#8B5CF6 100%);padding:1.5rem 2rem;border-radius:16px;margin-bottom:1.5rem;color:white;box-shadow:0 10px 25px -5px rgba(124,58,237,0.3)}
-.header-banner h1{font-size:1.75rem;font-weight:700;color:white!important}
-.stButton>button{width:100%;border-radius:.5rem;font-weight:600;font-size:.9rem!important;padding:.5rem 1.5rem!important;transition:all .2s!important;border:none!important}
-.stButton>button[kind="primary"]{background:linear-gradient(135deg,#7C3AED,#6D28D9)!important;color:white!important;box-shadow:0 4px 12px rgba(124,58,237,0.3)!important}
-.badge-success{display:inline-block;background:#D1FAE5;color:#065F46;padding:.15rem .65rem;border-radius:20px;font-size:.75rem;font-weight:600}
-.badge-purple{display:inline-block;background:#EDE9FE;color:#5B21B6;padding:.15rem .65rem;border-radius:20px;font-size:.75rem;font-weight:600}
-.badge-amber{display:inline-block;background:#FEF3C7;color:#92400E;padding:.15rem .65rem;border-radius:20px;font-size:.75rem;font-weight:600}
-.login-card{max-width:420px;margin:3rem auto;background:white;border-radius:20px;padding:2.5rem;box-shadow:0 20px 60px -20px rgba(0,0,0,0.1);border:1px solid #F3F4F6}
-.stTabs [aria-selected="true"]{color:#0d9488!important;border-bottom:3px solid #0d9488!important}
+
+/* --- Cards (Glass Level 1) --- */
+.larkeyword-card,.login-card{background:rgba(255,255,255,.8)!important;backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(30,41,59,.05)!important;border-radius:1rem!important;box-shadow:0 8px 30px rgba(0,0,0,.04)!important;padding:24px!important}
+.larkeyword-card{margin-bottom:16px}
+.login-card{max-width:420px;margin:3rem auto;padding:2.5rem;box-shadow:0 20px 50px rgba(30,41,59,.1)}
+
+/* --- Balance Box (Dark glass) --- */
+.balance-box{background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);color:#fff;border-radius:1rem;padding:20px 18px;margin-bottom:12px;box-shadow:0 12px 30px -10px rgba(15,23,42,.35);border:1px solid rgba(255,255,255,.08)}
+
+/* --- Bank Box (dashed separator, no solid border) --- */
+.bank-box{background:rgba(255,255,255,.8);backdrop-filter:blur(24px);border:1px dashed rgba(30,41,59,.12)!important;border-radius:.75rem;padding:16px;font-size:13px;color:#475569;box-shadow:0 8px 30px rgba(0,0,0,.04)}
+/* --- Header Banner (Glass + Teal→Purple) --- */
+.header-banner{background:linear-gradient(120deg,rgba(13,148,136,.95) 0%,rgba(13,148,136,.82) 45%,rgba(124,58,237,.85) 100%);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);padding:1.5rem 2rem;border-radius:1rem;margin-bottom:1.5rem;color:#fff;box-shadow:0 12px 34px -8px rgba(13,148,136,.35);border:1px solid rgba(255,255,255,.25)}
+.header-banner h1{font-size:1.75rem;font-weight:700;color:#fff!important;letter-spacing:-0.01em}
+.header-banner p{color:rgba(255,255,255,.92)!important}
+
+/* --- Buttons (Lumina) --- */
+.stButton>button{width:100%;border-radius:.5rem;font-weight:600;font-size:.9rem!important;padding:.55rem 1.5rem!important;transition:all .2s!important;font-family:'Hanken Grotesk',sans-serif}
+.stButton>button[kind="primary"]{background:#0d9488!important;color:#fff!important;border:1px solid transparent!important;box-shadow:0 4px 14px rgba(13,148,136,.3)!important}
+.stButton>button[kind="primary"]:hover{background:#0f766e!important;box-shadow:0 6px 18px rgba(13,148,136,.4)!important}
+.stButton>button:not([kind="primary"]){background:transparent!important;color:#1e293b!important;border:1px solid rgba(30,41,59,.1)!important;box-shadow:none!important}
+.stButton>button:not([kind="primary"]):hover{background:#f8fafc!important}
+
+/* --- Inputs (no border, focus cyan glow) --- */
+[data-testid="stTextInput"] input,[data-testid="stNumberInput"] input,[data-testid="stTextArea"] textarea,[data-baseweb="select"]>div{background:#f8fafc!important;border:none!important;border-radius:.5rem!important;color:#1e293b!important}
+[data-testid="stTextInput"] input:focus,[data-testid="stNumberInput"] input:focus,[data-testid="stTextArea"] textarea:focus,[data-baseweb="select"]>div:focus-within{background:#ffffff!important;box-shadow:0 0 0 2px rgba(13,148,136,.45)!important;border:none!important}
+
+/* --- Chips / Badges (JetBrains Mono uppercase) --- */
+.badge-success,.badge-amber,.badge-purple{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;padding:.2rem .7rem;border-radius:9999px;display:inline-block}
+.badge-success{background:rgba(13,148,136,.1);color:#0f766e}
+.badge-purple{background:rgba(124,58,237,.1);color:#6d28d9}
+.badge-amber{background:rgba(245,158,11,.12);color:#b45309}
+
+/* --- Tabs / Metrics / Expander / Dataframe (polish) --- */
+.stTabs [aria-selected="true"]{color:#0d9488!important;border-bottom:3px solid #0d9488!important;font-weight:700}
+[data-testid="stMetric"]{background:rgba(255,255,255,.8);backdrop-filter:blur(24px);border:1px solid rgba(30,41,59,.05);border-radius:1rem;padding:16px 20px;box-shadow:0 8px 30px rgba(0,0,0,.04)}
+[data-testid="stMetricValue"]{color:#1e293b!important}
+[data-testid="stExpander"]{border:1px solid rgba(30,41,59,.05)!important;border-radius:1rem!important;background:rgba(255,255,255,.6);backdrop-filter:blur(12px)}
+[data-testid="stDataFrame"]{border-radius:1rem;overflow:hidden;box-shadow:0 8px 30px rgba(0,0,0,.04)}
 </style>
 """, unsafe_allow_html=True)
 
