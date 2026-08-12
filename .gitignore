@@ -3,5 +3,6 @@ __pycache__/
 *.pyc
 package-lock.json
 .linker_cache.json
+autoposter_data.db
 service-account.json
 service_account.json

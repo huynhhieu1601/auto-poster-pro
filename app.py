@@ -46,11 +46,14 @@ st.set_page_config(page_title="WP Auto-Poster PRO", page_icon="✨", layout="wid
 # LUMINA SAAS DESIGN SYSTEM — Pure Light / Glassmorphism
 # (Xem DESIGN.md: teal #0d9488, purple #7c3aed, Hanken Grotesk + JetBrains Mono)
 # ============================================================
+# ============================================================
+# LUMINA SAAS DESIGN SYSTEM — Pure Light / Glassmorphism
+# (Xem DESIGN.md: teal #0d9488, purple #7c3aed, Hanken Grotesk + JetBrains Mono)
+# LƯU Ý: CHỈ dùng <style> thuần — KHÔNG <link>/<noscript>/<!-- --> vì qua sanitizer
+# sẽ làm hỏng cấu trúc <style> → CSS hiển thị dạng text trên trình duyệt.
+# Font dùng stack system (không phụ thuộc Google Fonts → không "in the oven").
+# ============================================================
 st.markdown("""
-<!-- [FIX OVEN] Tải font BẤT ĐỒNG BỘ (không chặn render như @import) — nếu Google Fonts chậm/không tới, vẫn dùng fallback system font -->
-<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" media="print" onload="this.media='all'">
-<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"></noscript>
 <style>
 html, body, [class*="st-"]{font-family:'Hanken Grotesk',ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#1e293b;background:#ffffff}
 h1,h2,h3,h4,h5,h6{color:#1e293b!important;letter-spacing:-0.01em}
