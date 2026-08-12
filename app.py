@@ -708,9 +708,25 @@ def parse_schedule_date(ds,ts_):
     if pt: return vn_now().replace(hour=pt.hour,minute=pt.minute,second=0,microsecond=0),True  # giờ VN
     if ds or ts_: return None,True
     return None,False
+def _ui_notify(kind,msg):
+    """Thông báo UI an toàn: nếu gọi từ background thread (worker) sẽ fallback sang worker_log
+    để không làm crash thread; khi chạy từ nút UI thì hiển thị st.warning/st.info/st.success/st.error."""
+    try:
+        if kind=="warning": st.warning(msg)
+        elif kind=="info": st.info(msg)
+        elif kind=="success": st.success(msg)
+        else: st.error(msg)
+    except Exception:
+        worker_log(msg)
 def process_sheet_for_user(uid):
-    s=get_all_user_settings(uid);saj=s.get("gsheet_sa_json","");surl=s.get("gsheet_url","")
-    if not saj or not surl: return 0
+    # [REFACTOR] gs=get_global_settings() gộp lên ĐẦU hàm, TRƯỚC khi kiểm tra gsheet_sa_json/gsheet_url
+    gs=get_global_settings()
+    s=get_all_user_settings(uid);s={**s,**gs}  # global settings (admin) ghi đè settings riêng user
+    saj=s.get("gsheet_sa_json","");surl=s.get("gsheet_url","")
+    if not saj or not surl:
+        # [REFACTOR] thông báo trực quan thay vì im lặng return 0
+        _ui_notify("warning","Chưa cấu hình Google Sheet URL/JSON")
+        return 0
     try:
         gc=get_gsheet_client(saj)
         try: sh=gc.open_by_url(surl)
@@ -730,12 +746,12 @@ def process_sheet_for_user(uid):
         ix_lnk=fc(hdrs,["link","url","link bài viết"])
         if ix_site==-1:ix_site=0; ix_kw==-1 and (ix_kw:=1); ix_ct==-1 and (ix_ct:=2); ix_pmpt==-1 and (ix_pmpt:=3)
         ix_wc==-1 and (ix_wc:=4); ix_date==-1 and (ix_date:=5); ix_time==-1 and (ix_time:=6); ix_st==-1 and (ix_st:=7); ix_lnk==-1 and (ix_lnk:=8)
-        gs=get_global_settings();s={**s,**gs}  # global settings (admin) ghi đè settings riêng user
         ab=s.get("local_api_base",LOCAL_API_BASE);ak=s.get("local_api_key",LOCAL_API_KEY);pid=s.get("local_project_id",LOCAL_PROJECT_ID)
         tm=s.get("local_model",LOCAL_MODEL);im=s.get("local_image_model",LOCAL_IMAGE_MODEL)
         # [REFACTOR] Pass 1: thu thập các dòng pending/scheduled/chờ đăng cần xử lý (chưa gọi API từng ô)
         from gspread import Cell
         pending=[]  # [(row_index, kv, site, bp, wv, cv, sdt)]
+        no_website_rows=0  # [REFACTOR] đếm số dòng thiếu website để hiển thị cảnh báo
         for ri in range(1,len(av)):
             row_index=ri+1  # chỉ số dòng trên Google Sheet (dòng 1 = header → dữ liệu bắt đầu từ dòng 2)
             row=av[ri];mx=max(ix_st,ix_lnk,ix_kw,ix_site,ix_date,ix_time)
@@ -749,7 +765,10 @@ def process_sheet_for_user(uid):
             if not site:
                 sites=get_websites(uid)
                 if sites: site=sites[0]
-                else: worker_log(f"⚠️ No website for user {uid}, row {row_index}");continue
+                else:
+                    # [REFACTOR] đếm + cảnh báo thiếu website
+                    no_website_rows+=1
+                    worker_log(f"⚠️ No website for user {uid}, row {row_index}");continue
             bp=site.get("brand_voice_prompt","You are an expert SEO content writer.")
             pv=str(row[ix_pmpt]).strip() if ix_pmpt<len(row) else ""
             if pv: bp=pv
@@ -765,8 +784,15 @@ def process_sheet_for_user(uid):
             vtz=vn_tz();now_vn=datetime.now(vtz) if vtz is not None else datetime.now(timezone(timedelta(hours=7)))
             if hs and sdt.tzinfo is None: sdt=vn_localize(sdt)
             if hs and is_future(sdt):
-                tr=sdt-now_vn;worker_log(f"⏳ Skipping '{kv}', scheduled for {sdt.strftime('%Y-%m-%d %H:%M')} ICT, current time is {now_vn.strftime('%Y-%m-%d %H:%M')} ICT ({int(tr.total_seconds()//3600)}h {int((tr.total_seconds()%3600)//60)}m remaining), waiting...");continue
+                tr=sdt-now_vn
+                # [REFACTOR] thông báo rõ dòng đang chờ đến giờ đăng (chưa bỏ qua im lặng)
+                _ui_notify("info",f"Dòng {row_index}: Từ khóa '{kv}' đang chờ đến giờ {sdt.strftime('%Y-%m-%d %H:%M')}")
+                worker_log(f"⏳ Skipping '{kv}', scheduled for {sdt.strftime('%Y-%m-%d %H:%M')} ICT, current time is {now_vn.strftime('%Y-%m-%d %H:%M')} ICT ({int(tr.total_seconds()//3600)}h {int((tr.total_seconds()%3600)//60)}m remaining), waiting...");continue
             pending.append((row_index,kv,site,bp,wv,cv,sdt))
+
+        # [REFACTOR] cảnh báo nếu có dòng pending nhưng chưa cấu hình website
+        if no_website_rows:
+            _ui_notify("warning","Chưa cấu hình Website trong Website Manager")
 
         if not pending: return 0
 
