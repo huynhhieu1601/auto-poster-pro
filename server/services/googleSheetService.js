@@ -28,6 +28,28 @@ const SCOPE = ['https://www.googleapis.com/auth/spreadsheets'];
 let _sheetsClient = null;
 let _sheetName = SHEET_NAME;
 
+
+// ============================================================
+// MÚI GIỜ VIỆT NAM (UTC+7) — hiển thị đúng dù server chạy UTC
+// ============================================================
+/** Lấy thời điểm hiện tại theo múi giờ Asia/Ho_Chi_Minh. */
+function getNowVN() {
+    return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+}
+
+/** Định dạng YYYY-MM-DD theo giờ VN. */
+function formatVNDate(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
+/** Định dạng HH:mm theo giờ VN. */
+function formatVNTime(d) {
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
 /** Tìm file credentials đầu tiên tồn tại trên đĩa. */
 function resolveCredentialsPath() {
     for (const p of CREDENTIAL_CANDIDATES) {
@@ -150,6 +172,11 @@ async function getNextStt() {
 async function appendScheduleToSheet(postData) {
     const data = postData || {};
     const stt = await getNextStt();
+    // Ngày đăng (YYYY-MM-DD) & Giờ đăng (HH:mm) theo giờ Việt Nam (UTC+7)
+    const nowVN = getNowVN();
+    const publishDate = data.publishDate || formatVNDate(nowVN);
+    const publishTime = data.publishTime || formatVNTime(nowVN);
+
     const values = [[
         stt,                                            // A STT
         data.websiteName || '',                          // B Tên Website
@@ -157,8 +184,8 @@ async function appendScheduleToSheet(postData) {
         data.contentType || '',                          // D Loại nội dung
         data.prompt || '',                               // E Prompt
         data.wordCount || '',                            // F Số từ viết
-        data.publishDate || '',                          // G Ngày đăng
-        data.publishTime || '',                          // H Giờ đăng
+        publishDate,                                     // G Ngày đăng (giờ VN)
+        publishTime,                                     // H Giờ đăng (giờ VN)
         data.status || 'Scheduled',                      // I Trạng thái
         data.postUrl || '',                              // J Link bài viết
         data.audit === false ? 'FALSE' : 'TRUE',         // K Audit (tick box / boolean)
@@ -192,5 +219,8 @@ module.exports = {
     getSheetValues,
     getNextStt,
     appendScheduleToSheet,
+    getNowVN,
+    formatVNDate,
+    formatVNTime,
     SHEET_ID,
 };

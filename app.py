@@ -703,16 +703,18 @@ def process_sheet_for_user(uid):
         tm=s.get("local_model",LOCAL_MODEL);im=s.get("local_image_model",LOCAL_IMAGE_MODEL)
         proc=0
         for ri in range(1,len(av)):
+            row_index=ri+1  # chỉ số dòng trên Google Sheet (dòng 1 = header → dữ liệu bắt đầu từ dòng 2)
             row=av[ri];mx=max(ix_st,ix_lnk,ix_kw,ix_site,ix_date,ix_time)
             while len(row)<=mx: row.append("")
             sv=str(row[ix_st]).strip().lower() if ix_st<len(row) else "";kv=str(row[ix_kw]).strip() if ix_kw<len(row) else "";snv=str(row[ix_site]).strip() if ix_site<len(row) else ""
-            if sv and sv not in["pending","chưa đăng","chua dang","chuadang"]: continue
+            # Normalize .strip().lower() — chỉ xử lý pending / scheduled / ô trống (không phân biệt hoa thường, không dính khoảng trắng)
+            if sv not in["pending","scheduled","chưa đăng","chua dang","chuadang",""]: continue
             if not kv: continue
             site=get_website_by_name(uid,snv)
             if not site:
                 sites=get_websites(uid)
                 if sites: site=sites[0]
-                else: worker_log(f"⚠️ No website for user {uid}, row {ri+1}");continue
+                else: worker_log(f"⚠️ No website for user {uid}, row {row_index}");continue
             bp=site.get("brand_voice_prompt","You are an expert SEO content writer.")
             pv=str(row[ix_pmpt]).strip() if ix_pmpt<len(row) else ""
             if pv: bp=pv
@@ -723,22 +725,22 @@ def process_sheet_for_user(uid):
             if cv not in["post","product"]: cv="post"
             ds=str(row[ix_date]).strip() if ix_date<len(row) else "";ts_=str(row[ix_time]).strip() if ix_time<len(row) else ""
             sdt,hs=parse_schedule_date(ds,ts_)
-            if sdt is None and hs: worker_log(f"⚠️ Row {ri+1}: Cannot parse '{ds} {ts_}' for '{kv}'. Posting immediately.");sdt=vn_now();hs=False
+            if sdt is None and hs: worker_log(f"⚠️ Row {row_index}: Cannot parse '{ds} {ts_}' for '{kv}'. Posting immediately.");sdt=vn_now();hs=False
             if sdt is None: sdt=vn_now();hs=False
             import pytz;vtz=pytz.timezone("Asia/Ho_Chi_Minh");now_vn=datetime.now(vtz)
             if hs and sdt.tzinfo is None: sdt=vtz.localize(sdt)
             if hs and is_future(sdt):
                 tr=sdt-now_vn;worker_log(f"⏳ Skipping '{kv}', scheduled for {sdt.strftime('%Y-%m-%d %H:%M')} ICT, current time is {now_vn.strftime('%Y-%m-%d %H:%M')} ICT ({int(tr.total_seconds()//3600)}h {int((tr.total_seconds()%3600)//60)}m remaining), waiting...");continue
-            worker_log(f"🔄 Row {ri+1}: '{kv}' → {site['site_name']} ({cv})")
-            try: ws.update_cell(ri+1,ix_st+1,"Processing...")
+            worker_log(f"🔄 Row {row_index}: '{kv}' → {site['site_name']} ({cv})")
+            try: ws.update_cell(row_index,ix_st+1,"Processing...")
             except: pass
             _,_,link,_,err=run_full_pipeline(keyword=kv,brand_voice_prompt=bp,word_count=wv,wp_url=site["wp_url"],wp_username=site["wp_username"],wp_password=site["wp_app_password"],woo_ck=site["woo_ck"],woo_cs=site["woo_cs"],api_base=ab,api_key=ak,project_id=pid,text_model=tm,image_model=im,content_type=cv,schedule_dt=sdt,serpapi_key=None)
             if err is None and link:
-                ws.update_cell(ri+1,ix_st+1,"Success");ws.update_cell(ri+1,ix_lnk+1,link)
+                ws.update_cell(row_index,ix_st+1,"Success");ws.update_cell(row_index,ix_lnk+1,link)
                 save_history_entry(uid,site["site_name"],kv,sdt.strftime("%Y-%m-%d %H:%M"),'future' if is_future(sdt) else 'publish',cv,link)
                 worker_log(f"✅ Posted: '{kv}' → {link}");proc+=1
             else:
-                em=err or "Unknown error";ws.update_cell(ri+1,ix_st+1,f"Error: {em[:80]}");worker_log(f"❌ Failed: '{kv}' → {em[:120]}")
+                em=err or "Unknown error";ws.update_cell(row_index,ix_st+1,f"Error: {em[:80]}");worker_log(f"❌ Failed: '{kv}' → {em[:120]}")
         return proc
     except ImportError: worker_log("⚠️ gspread not installed");return 0
     except Exception as e: worker_log(f"❌ Sheet error user {uid}: {e}");return 0
