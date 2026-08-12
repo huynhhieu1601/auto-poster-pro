@@ -24,7 +24,15 @@ except Exception:
     linker=None
 import dashboard  # Dashboard hiệu suất (dashboard.py)
 
-DB_FILE = "/tmp/autoposter_data.db"
+# ============================================================
+# CẤU HÌNH & TRẠNG THÁI TOÀN CỤC
+# ============================================================
+# DB_FILE lưu bền vững (không bị xoá khi server restart) — đổi qua env DATABASE_PATH nếu cần.
+# [REFACTOR] trước đây là "/tmp/autoposter_data.db" (bị xoá khi reboot).
+DB_FILE = os.getenv("DATABASE_PATH", os.path.join(os.path.dirname(os.path.abspath(__file__)), "autoposter_data.db"))
+# [REFACTOR] Cờ Worker toàn cục bằng biến Python (KHÔNG theo st.session_state từng phiên duyệt web)
+# → đảm bảo chỉ 1 Background Thread duy nhất cho toàn hệ thống (tránh trùng lặp đăng bài khi mở tab/F5).
+GLOBAL_WORKER_STARTED = False
 LOCAL_API_BASE = "http://localhost:3003/v1"
 LOCAL_API_KEY = "AQ.Ab8RN6IjV-QWSXPxSIydANNNuh8a2bdOh_wkBRWd_diI7s67Tw"
 LOCAL_PROJECT_ID = "777992117459"
@@ -701,14 +709,17 @@ def process_sheet_for_user(uid):
         gs=get_global_settings();s={**s,**gs}  # global settings (admin) ghi đè settings riêng user
         ab=s.get("local_api_base",LOCAL_API_BASE);ak=s.get("local_api_key",LOCAL_API_KEY);pid=s.get("local_project_id",LOCAL_PROJECT_ID)
         tm=s.get("local_model",LOCAL_MODEL);im=s.get("local_image_model",LOCAL_IMAGE_MODEL)
-        proc=0
+        # [REFACTOR] Pass 1: thu thập các dòng pending/scheduled/chờ đăng cần xử lý (chưa gọi API từng ô)
+        from gspread import Cell
+        pending=[]  # [(row_index, kv, site, bp, wv, cv, sdt)]
         for ri in range(1,len(av)):
             row_index=ri+1  # chỉ số dòng trên Google Sheet (dòng 1 = header → dữ liệu bắt đầu từ dòng 2)
             row=av[ri];mx=max(ix_st,ix_lnk,ix_kw,ix_site,ix_date,ix_time)
             while len(row)<=mx: row.append("")
             sv=str(row[ix_st]).strip().lower() if ix_st<len(row) else "";kv=str(row[ix_kw]).strip() if ix_kw<len(row) else "";snv=str(row[ix_site]).strip() if ix_site<len(row) else ""
-            # Normalize .strip().lower() — chỉ xử lý pending / scheduled / ô trống (không phân biệt hoa thường, không dính khoảng trắng)
-            if sv not in["pending","scheduled","chưa đăng","chua dang","chuadang",""]: continue
+            # Normalize .strip().lower() — chỉ xử lý pending / scheduled / chờ đăng / ô trống (không phân biệt hoa thường, không dính khoảng trắng)
+            # [REFACTOR] bổ sung "chờ đăng","cho dang","chodang" cho tiếng Việt có dấu
+            if sv not in["pending","scheduled","chưa đăng","chua dang","chuadang","chờ đăng","cho dang","chodang",""]: continue
             if not kv: continue
             site=get_website_by_name(uid,snv)
             if not site:
@@ -731,16 +742,40 @@ def process_sheet_for_user(uid):
             if hs and sdt.tzinfo is None: sdt=vtz.localize(sdt)
             if hs and is_future(sdt):
                 tr=sdt-now_vn;worker_log(f"⏳ Skipping '{kv}', scheduled for {sdt.strftime('%Y-%m-%d %H:%M')} ICT, current time is {now_vn.strftime('%Y-%m-%d %H:%M')} ICT ({int(tr.total_seconds()//3600)}h {int((tr.total_seconds()%3600)//60)}m remaining), waiting...");continue
+            pending.append((row_index,kv,site,bp,wv,cv,sdt))
+
+        if not pending: return 0
+
+        # [REFACTOR] Batch đánh dấu "Processing..." cho TẤT CẢ dòng — 1 lần gọi API (tránh HTTP 429)
+        try:
+            ws.update_cells([Cell(r[0],ix_st+1,"Processing...") for r in pending], value_input_option='USER_ENTERED')
+        except Exception as e:
+            worker_log(f"⚠️ Batch 'Processing...' lỗi: {e}")
+
+        # [REFACTOR] Pass 2: xử lý từng dòng, GOM Success/Error + Link vào 1 batch cuối
+        updates=[];proc=0
+        for (row_index,kv,site,bp,wv,cv,sdt) in pending:
             worker_log(f"🔄 Row {row_index}: '{kv}' → {site['site_name']} ({cv})")
-            try: ws.update_cell(row_index,ix_st+1,"Processing...")
-            except: pass
-            _,_,link,_,err=run_full_pipeline(keyword=kv,brand_voice_prompt=bp,word_count=wv,wp_url=site["wp_url"],wp_username=site["wp_username"],wp_password=site["wp_app_password"],woo_ck=site["woo_ck"],woo_cs=site["woo_cs"],api_base=ab,api_key=ak,project_id=pid,text_model=tm,image_model=im,content_type=cv,schedule_dt=sdt,serpapi_key=None)
+            try:
+                _,_,link,_,err=run_full_pipeline(keyword=kv,brand_voice_prompt=bp,word_count=wv,wp_url=site["wp_url"],wp_username=site["wp_username"],wp_password=site["wp_app_password"],woo_ck=site["woo_ck"],woo_cs=site["woo_cs"],api_base=ab,api_key=ak,project_id=pid,text_model=tm,image_model=im,content_type=cv,schedule_dt=sdt,serpapi_key=None)
+            except Exception as e:
+                err=str(e);link=None
             if err is None and link:
-                ws.update_cell(row_index,ix_st+1,"Success");ws.update_cell(row_index,ix_lnk+1,link)
+                updates.append(Cell(row_index,ix_st+1,"Success"))
+                updates.append(Cell(row_index,ix_lnk+1,link))
                 save_history_entry(uid,site["site_name"],kv,sdt.strftime("%Y-%m-%d %H:%M"),'future' if is_future(sdt) else 'publish',cv,link)
                 worker_log(f"✅ Posted: '{kv}' → {link}");proc+=1
             else:
-                em=err or "Unknown error";ws.update_cell(row_index,ix_st+1,f"Error: {em[:80]}");worker_log(f"❌ Failed: '{kv}' → {em[:120]}")
+                em=err or "Unknown error"
+                updates.append(Cell(row_index,ix_st+1,f"Error: {em[:80]}"))
+                worker_log(f"❌ Failed: '{kv}' → {em[:120]}")
+
+        # [REFACTOR] Ghi toàn bộ kết quả 1 lần bằng update_cells (Success/Error + Link cùng lúc)
+        if updates:
+            try:
+                ws.update_cells(updates, value_input_option='USER_ENTERED')
+            except Exception as e:
+                worker_log(f"⚠️ Batch update kết quả lỗi: {e}")
         return proc
     except ImportError: worker_log("⚠️ gspread not installed");return 0
     except Exception as e: worker_log(f"❌ Sheet error user {uid}: {e}");return 0
@@ -755,8 +790,18 @@ def background_worker_loop():
     schedule_lib.every(1).minutes.do(scan_all_users_sheets);worker_log("🟢 Worker started (every 1 min)")
     while True: schedule_lib.run_pending();time.sleep(60)
 def start_background_worker():
-    if not st.session_state.worker_started:
-        threading.Thread(target=background_worker_loop,daemon=True).start();st.session_state.worker_started=True;worker_log("🔧 Worker thread initialized")
+    # [REFACTOR] Dùng cờ toàn cục Python thay vì st.session_state.worker_started:
+    # session_state cô lập theo từng phiên duyệt web → mỗi tab/F5 tạo thêm 1 thread.
+    global GLOBAL_WORKER_STARTED
+    if GLOBAL_WORKER_STARTED:
+        return  # đã có 1 worker toàn cục đang chạy
+    try:
+        GLOBAL_WORKER_STARTED = True
+        threading.Thread(target=background_worker_loop, daemon=True).start()
+        worker_log("🔧 Worker thread initialized (global)")
+    except Exception as e:
+        GLOBAL_WORKER_STARTED = False
+        worker_log(f"❌ Worker init error: {e}")
 
 # LOGIN UI
 restore_session_from_token()  # tự đăng nhập lại khi refresh (session_state bị reset)
@@ -883,7 +928,7 @@ if st.session_state.nav_view=="🚀 Content Generator":
                                 else: st.error(f"Failed: {err}")
                             except Exception as e: st.error(f"Error: {e}")
             st.markdown("---");st.markdown("##### 📊 Sheet Sync")
-            if st.session_state.worker_started: st.markdown('<span class="badge-success">🟢 Worker RUNNING</span> <span style="font-size:.75rem;color:#6B7280">(every 1 min)</span>',unsafe_allow_html=True)
+            if GLOBAL_WORKER_STARTED: st.markdown('<span class="badge-success">🟢 Worker RUNNING</span> <span style="font-size:.75rem;color:#6B7280">(every 1 min)</span>',unsafe_allow_html=True)
             else: st.markdown('<span class="badge-amber">🔴 Worker STOPPED</span>',unsafe_allow_html=True)
             if st.button("🔄 Run Sheet Automation Now",use_container_width=True):
                 if not st.session_state.get("gsheet_sa_json") or not st.session_state.get("gsheet_url"): st.warning("Configure Google Sheets first.")
