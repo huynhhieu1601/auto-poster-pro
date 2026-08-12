@@ -124,7 +124,8 @@ def deduct_user_credit(uid,cost=2000):
     if cur<cost: return False
     conn=get_db();c=conn.cursor()
     c.execute("UPDATE users SET credits=credits-? WHERE id=?",(cost,uid))
-    c.execute("INSERT INTO credit_transactions(user_id,amount,type,description) VALUES(?,-2000,'DEDUCT','Đăng bài viết thành công')",(uid,))
+    # [FIX] dùng -cost thay vì hardcode -2000 (đúng khi chi phí/bài thay đổi)
+    c.execute("INSERT INTO credit_transactions(user_id,amount,type,description) VALUES(?,-?,'DEDUCT','Đăng bài viết thành công')",(uid,cost))
     conn.commit();conn.close()
     return True
 def get_cost_per_post(): return 2000
@@ -750,7 +751,9 @@ def process_sheet_for_user(uid):
         tm=s.get("local_model",LOCAL_MODEL);im=s.get("local_image_model",LOCAL_IMAGE_MODEL)
         # [REFACTOR] Pass 1: thu thập các dòng pending/scheduled/chờ đăng cần xử lý (chưa gọi API từng ô)
         from gspread import Cell
+        cpp=get_cost_per_post()  # chi phí 1 bài (VD: 2000 VNĐ)
         pending=[]  # [(row_index, kv, site, bp, wv, cv, sdt)]
+        skip_cells=[]  # [REFACTOR] các dòng "Thiếu số dư" (gom batch, tránh HTTP 429)
         no_website_rows=0  # [REFACTOR] đếm số dòng thiếu website để hiển thị cảnh báo
         for ri in range(1,len(av)):
             row_index=ri+1  # chỉ số dòng trên Google Sheet (dòng 1 = header → dữ liệu bắt đầu từ dòng 2)
@@ -788,11 +791,23 @@ def process_sheet_for_user(uid):
                 # [REFACTOR] thông báo rõ dòng đang chờ đến giờ đăng (chưa bỏ qua im lặng)
                 _ui_notify("info",f"Dòng {row_index}: Từ khóa '{kv}' đang chờ đến giờ {sdt.strftime('%Y-%m-%d %H:%M')}")
                 worker_log(f"⏳ Skipping '{kv}', scheduled for {sdt.strftime('%Y-%m-%d %H:%M')} ICT, current time is {now_vn.strftime('%Y-%m-%d %H:%M')} ICT ({int(tr.total_seconds()//3600)}h {int((tr.total_seconds()%3600)//60)}m remaining), waiting...");continue
+            # [REFACTOR] 1) Kiểm tra số dư TRƯỚC khi sinh bài — không đủ thì skip + đánh dấu lỗi
+            if get_user_credits(uid)<cpp:
+                worker_log(f"⚠️ User {uid} không đủ số dư để chạy bài '{kv}'")
+                skip_cells.append(Cell(row_index,ix_st+1,"Error: Thiếu số dư"))
+                continue
             pending.append((row_index,kv,site,bp,wv,cv,sdt))
 
         # [REFACTOR] cảnh báo nếu có dòng pending nhưng chưa cấu hình website
         if no_website_rows:
             _ui_notify("warning","Chưa cấu hình Website trong Website Manager")
+
+        # [REFACTOR] Ghi các dòng "Thiếu số dư" (nếu có) trước khi return — gom batch tránh HTTP 429
+        if skip_cells:
+            try:
+                ws.update_cells(skip_cells, value_input_option='USER_ENTERED')
+            except Exception as e:
+                worker_log(f"⚠️ Batch 'Thiếu số dư' lỗi: {e}")
 
         if not pending: return 0
 
@@ -805,16 +820,23 @@ def process_sheet_for_user(uid):
         # [REFACTOR] Pass 2: xử lý từng dòng, GOM Success/Error + Link vào 1 batch cuối
         updates=[];proc=0
         for (row_index,kv,site,bp,wv,cv,sdt) in pending:
+            # [REFACTOR] Kiểm tra lại số dư trước mỗi dòng (sau khi các dòng trước đã trừ tiền)
+            if get_user_credits(uid)<cpp:
+                worker_log(f"⚠️ User {uid} không đủ số dư để chạy bài '{kv}'")
+                updates.append(Cell(row_index,ix_st+1,"Error: Thiếu số dư"))
+                continue
             worker_log(f"🔄 Row {row_index}: '{kv}' → {site['site_name']} ({cv})")
             try:
                 _,_,link,_,err=run_full_pipeline(keyword=kv,brand_voice_prompt=bp,word_count=wv,wp_url=site["wp_url"],wp_username=site["wp_username"],wp_password=site["wp_app_password"],woo_ck=site["woo_ck"],woo_cs=site["woo_cs"],api_base=ab,api_key=ak,project_id=pid,text_model=tm,image_model=im,content_type=cv,schedule_dt=sdt,serpapi_key=None)
             except Exception as e:
                 err=str(e);link=None
             if err is None and link:
+                # [REFACTOR] 2) TRỪ TIỀN ngay sau khi đăng bài thành công
+                deduct_user_credit(uid,cpp)
                 updates.append(Cell(row_index,ix_st+1,"Success"))
                 updates.append(Cell(row_index,ix_lnk+1,link))
                 save_history_entry(uid,site["site_name"],kv,sdt.strftime("%Y-%m-%d %H:%M"),'future' if is_future(sdt) else 'publish',cv,link)
-                worker_log(f"✅ Posted: '{kv}' → {link}");proc+=1
+                worker_log(f"✅ Posted & Deducted {cpp:,.0f} VNĐ: '{kv}' → {link}");proc+=1
             else:
                 em=err or "Unknown error"
                 updates.append(Cell(row_index,ix_st+1,f"Error: {em[:80]}"))
