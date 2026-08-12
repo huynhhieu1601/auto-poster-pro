@@ -12,7 +12,7 @@ import json
 import re
 import os
 import base64
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from bs4 import BeautifulSoup
 import pandas as pd
 import time
@@ -141,25 +141,46 @@ for k,v in {"generated_outline":"","logged_in":False,"user_id":None,"username":"
 # AUTH
 def hash_password(pw): return hashlib.sha256(pw.encode()).hexdigest()
 def vn_tz():
+    """Múi giờ Việt Nam (UTC+7) — [REFACTOR] ưu tiên zoneinfo (stdlib Python 3.9+), fallback pytz."""
     try:
-        import pytz
-        return pytz.timezone("Asia/Ho_Chi_Minh")
+        from zoneinfo import ZoneInfo
+        return ZoneInfo("Asia/Ho_Chi_Minh")
     except Exception:
-        return None
+        try:
+            import pytz
+            return pytz.timezone("Asia/Ho_Chi_Minh")
+        except Exception:
+            return None
 def vn_now():
-    """Giờ Việt Nam hiện tại (UTC+7), dạng naive wall-clock — dùng cho lịch đăng & log."""
+    """Trả về datetime chuẩn giờ Việt Nam (UTC+7) dạng wall-clock naive."""
     tz=vn_tz()
     if tz is not None:
         try: return datetime.now(tz).replace(tzinfo=None)
         except Exception: pass
-    return datetime.now()
+    # [REFACTOR] Fallback an toàn tuyệt đối: UTC + 7 tiếng (không bao giờ lệch về giờ UTC của server Linux)
+    return datetime.utcnow() + timedelta(hours=7)
+def vn_localize(dt_):
+    """Gắn múi giờ Việt Nam (UTC+7) cho datetime naive.
+    Hỗ trợ cả zoneinfo (replace tzinfo) lẫn pytz (localize) + fallback cố định +07."""
+    if dt_ is None or dt_.tzinfo is not None: return dt_
+    tz=vn_tz()
+    if tz is not None:
+        try:
+            if hasattr(tz, "localize"):  # pytz
+                return tz.localize(dt_)
+            return dt_.replace(tzinfo=tz)  # zoneinfo (không có .localize)
+        except Exception:
+            pass
+    try: return dt_.replace(tzinfo=timezone(timedelta(hours=7)))
+    except Exception: return dt_
 def is_future(dt_):
     """True nếu dt_ (naive = giờ VN hoặc aware) nằm trong tương lai so với giờ VN hiện tại."""
     if dt_ is None: return False
     tz=vn_tz()
     try:
-        if tz is not None and dt_.tzinfo is None: dt_=tz.localize(dt_)
-        now=datetime.now(tz) if tz is not None else datetime.now()
+        if dt_.tzinfo is None:
+            dt_=vn_localize(dt_)
+        now=datetime.now(tz) if tz is not None else datetime.now(timezone(timedelta(hours=7)))
         return dt_>now
     except Exception:
         return False
@@ -653,7 +674,8 @@ def dashboard_trigger_now(uid):
     except Exception as e:
         return f"Lỗi khi kích hoạt: {e}"
 def parse_schedule_date(ds,ts_):
-    import pytz; vtz=pytz.timezone("Asia/Ho_Chi_Minh")
+    # [REFACTOR] dùng vn_tz() (zoneinfo → pytz → None) thay vì import pytz trực tiếp
+    vtz=vn_tz()
     ds=str(ds).strip() if ds else ""; ts_=str(ts_).strip() if ts_ else ""
     if not ds and not ts_: return None,False
     if ts_:
@@ -662,10 +684,12 @@ def parse_schedule_date(ds,ts_):
             if 0.0<=fv<1.0 and '.' in ts_: ts_=f"{int((fv*86400)//3600):02d}:{int(((fv*86400)%3600)//60):02d}:{int((fv*86400)%60):02d}"
         except: pass
     cs=f"{ds} {ts_}".strip()
+    def _loc(dt_):
+        # Gắn múi giờ Việt Nam (UTC+7) cho datetime naive — không bao giờ để lệch UTC
+        return vn_localize(dt_)
     try:
         import dateutil.parser; pd=dateutil.parser.parse(cs,dayfirst=True)
-        if pd.tzinfo is None: pd=vtz.localize(pd)
-        return pd,True
+        return _loc(pd),True
     except: pass
     dfmts=["%Y-%m-%d","%d/%m/%Y","%m/%d/%Y","%Y/%m/%d","%d-%m-%Y","%Y.%m.%d"]
     pd=None
@@ -679,9 +703,9 @@ def parse_schedule_date(ds,ts_):
         for f in tfmts:
             try: pt=datetime.strptime(ts_,f);break
             except: continue
-    if pd and pt: return vtz.localize(pd.replace(hour=pt.hour,minute=pt.minute,second=pt.second,microsecond=0)),True
-    if pd: return vtz.localize(pd),True
-    if pt: return datetime.now(vtz).replace(hour=pt.hour,minute=pt.minute,second=0,microsecond=0),True
+    if pd and pt: return _loc(pd.replace(hour=pt.hour,minute=pt.minute,second=pt.second,microsecond=0)),True
+    if pd: return _loc(pd),True
+    if pt: return vn_now().replace(hour=pt.hour,minute=pt.minute,second=0,microsecond=0),True  # giờ VN
     if ds or ts_: return None,True
     return None,False
 def process_sheet_for_user(uid):
@@ -738,8 +762,8 @@ def process_sheet_for_user(uid):
             sdt,hs=parse_schedule_date(ds,ts_)
             if sdt is None and hs: worker_log(f"⚠️ Row {row_index}: Cannot parse '{ds} {ts_}' for '{kv}'. Posting immediately.");sdt=vn_now();hs=False
             if sdt is None: sdt=vn_now();hs=False
-            import pytz;vtz=pytz.timezone("Asia/Ho_Chi_Minh");now_vn=datetime.now(vtz)
-            if hs and sdt.tzinfo is None: sdt=vtz.localize(sdt)
+            vtz=vn_tz();now_vn=datetime.now(vtz) if vtz is not None else datetime.now(timezone(timedelta(hours=7)))
+            if hs and sdt.tzinfo is None: sdt=vn_localize(sdt)
             if hs and is_future(sdt):
                 tr=sdt-now_vn;worker_log(f"⏳ Skipping '{kv}', scheduled for {sdt.strftime('%Y-%m-%d %H:%M')} ICT, current time is {now_vn.strftime('%Y-%m-%d %H:%M')} ICT ({int(tr.total_seconds()//3600)}h {int((tr.total_seconds()%3600)//60)}m remaining), waiting...");continue
             pending.append((row_index,kv,site,bp,wv,cv,sdt))
@@ -885,8 +909,10 @@ if st.session_state.nav_view=="🚀 Content Generator":
             st.markdown("#### ⚙️ Settings");wc=st.slider("Word Count",500,3000,1850,50)
             ct=st.radio("Content Type",["post","product"],format_func=lambda x:"📝 Blog Post" if x=="post" else "🛒 Woo Product",horizontal=True,key="gen_ct")
             st.markdown("##### 📅 Schedule");cd,ct2=st.columns(2)
-            with cd: sd=st.date_input("Date",key="gen_date")
-            with ct2: st2=st.time_input("Time",value=vn_now().time(),key="gen_time")
+            # [REFACTOR] value mặc định của Date/Time theo giờ Việt Nam (UTC+7) — không lấy giờ UTC server
+            now_vn=vn_now()
+            with cd: sd=st.date_input("Date",value=now_vn.date(),key="gen_date")
+            with ct2: st2=st.time_input("Time",value=now_vn.time(),key="gen_time")
         with c1:
             kw=st.text_input("🔑 Primary Keyword",placeholder="e.g. Best SEO Strategies 2026")
             if st.button("✨ Generate SEO Outline (SerpApi)",use_container_width=True):
@@ -918,7 +944,7 @@ if st.session_state.nav_view=="🚀 Content Generator":
                         with st.spinner(f"Generating {ct}..."):
                             try:
                                 bp=ss.get("brand_voice_prompt","You are an expert SEO writer.")
-                                dt=datetime.combine(sd,st2)
+                                dt=datetime.combine(sd,st2)  # naive = giờ Việt Nam (UTC+7) do user chọn; is_future()/vn_now() xử lý đúng múi giờ
                                 _,_,link,_,err=run_full_pipeline(keyword=kw,brand_voice_prompt=bp,word_count=wc,wp_url=ss["wp_url"],wp_username=ss["wp_username"],wp_password=ss["wp_app_password"],woo_ck=ss["woo_ck"],woo_cs=ss["woo_cs"],api_base=st.session_state.get("local_api_base",LOCAL_API_BASE),api_key=st.session_state.get("local_api_key",LOCAL_API_KEY),project_id=st.session_state.get("local_project_id",LOCAL_PROJECT_ID),text_model=st.session_state.get("local_model",LOCAL_MODEL),image_model=st.session_state.get("local_image_model",LOCAL_IMAGE_MODEL),content_type=ct,schedule_dt=dt,serpapi_key=None)
                                 if err is None and link:
                                     deduct_user_credit(uid,cpp);st.success(f"✅ Published to {ssn}!")
