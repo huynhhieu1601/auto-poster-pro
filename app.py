@@ -175,16 +175,21 @@ def vn_localize(dt_):
     try: return dt_.replace(tzinfo=timezone(timedelta(hours=7)))
     except Exception: return dt_
 def is_future(dt_):
-    """True nếu dt_ (naive = giờ VN hoặc aware) nằm trong tương lai so với giờ VN hiện tại."""
+    """True nếu dt_ nằm trong tương lai so với giờ VN hiện tại.
+    [REFACTOR] So sánh trực tiếp trên Naive datetime giờ VN để tránh lệch timezone offset."""
     if dt_ is None: return False
-    tz=vn_tz()
-    try:
-        if dt_.tzinfo is None:
-            dt_=vn_localize(dt_)
-        now=datetime.now(tz) if tz is not None else datetime.now(timezone(timedelta(hours=7)))
-        return dt_>now
-    except Exception:
-        return False
+    now_vn=vn_now()  # Naive giờ VN (UTC+7)
+    if dt_.tzinfo is not None:
+        # aware → đổi về Naive wall-clock giờ VN
+        tz=vn_tz()
+        try:
+            if tz is not None:
+                dt_=dt_.astimezone(tz).replace(tzinfo=None)
+            else:
+                dt_=dt_.replace(tzinfo=None)
+        except Exception:
+            pass
+    return dt_>now_vn
 def api_log(msg):
     try: print(f"[{vn_now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}",flush=True)
     except Exception: print(msg,flush=True)
@@ -675,40 +680,61 @@ def dashboard_trigger_now(uid):
     except Exception as e:
         return f"Lỗi khi kích hoạt: {e}"
 def parse_schedule_date(ds,ts_):
-    # [REFACTOR] dùng vn_tz() (zoneinfo → pytz → None) thay vì import pytz trực tiếp
-    vtz=vn_tz()
-    ds=str(ds).strip() if ds else ""; ts_=str(ts_).strip() if ts_ else ""
-    if not ds and not ts_: return None,False
+    """Parse ngày/giờ từ Google Sheet → Naive datetime WALL-CLOCK giờ Việt Nam (UTC+7).
+    [REFACTOR]
+    - Số sê-ri Excel/Google Sheets (VD: 45516): datetime(1899,12,30) + timedelta(days=float(ds)).
+    - Ưu tiên định dạng: YYYY-MM-DD → DD/MM/YYYY → YYYY/MM/DD → DD-MM-YYYY.
+    - Giờ: HH:mm / HH:mm:ss; trống → mặc định 00:00.
+    - Trả về Naive datetime (không kèm tz, không lệch offset)."""
+    ds_raw=str(ds).strip() if ds is not None else ""; ts_=str(ts_).strip() if ts_ else ""
+    if not ds_raw and not ts_: return None,False
+    pd=None; pt=None
+    # 1) Số sê-ri ngày của Google Sheets/Excel
+    try:
+        snum=float(ds_raw.replace(",","."))
+        if 1000<snum<60000:  # phạm vi hợp lệ của serial ngày
+            pd=datetime(1899,12,30)+timedelta(days=snum)
+            frac=snum-int(snum)
+            if frac>0 and not ts_:
+                tot=int(round(frac*86400)); ts_=f"{tot//3600:02d}:{(tot%3600)//60:02d}"
+    except Exception:
+        pd=None
+    # 2) Ngày chuỗi — ưu tiên định dạng Việt Nam/ISO rõ ràng
+    if pd is None and ds_raw:
+        for f in ["%Y-%m-%d","%d/%m/%Y","%Y/%m/%d","%d-%m-%Y","%Y.%m.%d","%d.%m.%Y","%m/%d/%Y"]:
+            try:
+                pd=datetime.strptime(ds_raw,f);break
+            except Exception:
+                continue
+    # 2b) Nếu 1 ô chứa cả ngày+giờ (VD: "12/08/2026 18:00:00")
+    if pd is None and ds_raw:
+        for f in ["%d/%m/%Y %H:%M:%S","%d/%m/%Y %H:%M","%Y-%m-%d %H:%M:%S","%Y-%m-%d %H:%M"]:
+            try:
+                return datetime.strptime(ds_raw,f),True
+            except Exception:
+                continue
+    # 3) Giờ — HH:mm hoặc HH:mm:ss; trống → 00:00
     if ts_:
         try:
             fv=float(ts_)
-            if 0.0<=fv<1.0 and '.' in ts_: ts_=f"{int((fv*86400)//3600):02d}:{int(((fv*86400)%3600)//60):02d}:{int((fv*86400)%60):02d}"
-        except: pass
-    cs=f"{ds} {ts_}".strip()
-    def _loc(dt_):
-        # Gắn múi giờ Việt Nam (UTC+7) cho datetime naive — không bao giờ để lệch UTC
-        return vn_localize(dt_)
-    try:
-        import dateutil.parser; pd=dateutil.parser.parse(cs,dayfirst=True)
-        return _loc(pd),True
-    except: pass
-    dfmts=["%Y-%m-%d","%d/%m/%Y","%m/%d/%Y","%Y/%m/%d","%d-%m-%Y","%Y.%m.%d"]
-    pd=None
-    if ds:
-        for f in dfmts:
-            try: pd=datetime.strptime(ds,f);break
-            except: continue
-    tfmts=["%H:%M","%H:%M:%S","%I:%M %p","%I:%M:%S %p"]
-    pt=None
-    if ts_:
-        for f in tfmts:
-            try: pt=datetime.strptime(ts_,f);break
-            except: continue
-    if pd and pt: return _loc(pd.replace(hour=pt.hour,minute=pt.minute,second=pt.second,microsecond=0)),True
-    if pd: return _loc(pd),True
-    if pt: return vn_now().replace(hour=pt.hour,minute=pt.minute,second=0,microsecond=0),True  # giờ VN
-    if ds or ts_: return None,True
-    return None,False
+            if 0.0<=fv<1.0 and '.' in ts_:
+                ts_=f"{int((fv*86400)//3600):02d}:{int(((fv*86400)%3600)//60):02d}"
+        except Exception:
+            pass
+        for f in ["%H:%M:%S","%H:%M","%I:%M %p","%I:%M:%S %p"]:
+            try:
+                pt=datetime.strptime(ts_,f);break
+            except Exception:
+                continue
+    # 4) Ghép ngày + giờ → Naive datetime giờ VN (không kèm tz)
+    if pd is None:
+        if pt is not None:
+            nowv=vn_now()
+            return nowv.replace(hour=pt.hour,minute=pt.minute,second=pt.second,microsecond=0),True
+        return None,True
+    if pt is None:
+        pt=datetime(2000,1,1,0,0)  # mặc định 00:00
+    return pd.replace(hour=pt.hour,minute=pt.minute,second=pt.second,microsecond=0),True
 def _ui_notify(kind,msg):
     """Thông báo UI an toàn: nếu gọi từ background thread (worker) sẽ fallback sang worker_log
     để không làm crash thread; khi chạy từ nút UI thì hiển thị st.warning/st.info/st.success/st.error."""
@@ -784,13 +810,14 @@ def process_sheet_for_user(uid):
             sdt,hs=parse_schedule_date(ds,ts_)
             if sdt is None and hs: worker_log(f"⚠️ Row {row_index}: Cannot parse '{ds} {ts_}' for '{kv}'. Posting immediately.");sdt=vn_now();hs=False
             if sdt is None: sdt=vn_now();hs=False
-            vtz=vn_tz();now_vn=datetime.now(vtz) if vtz is not None else datetime.now(timezone(timedelta(hours=7)))
-            if hs and sdt.tzinfo is None: sdt=vn_localize(sdt)
-            if hs and is_future(sdt):
-                tr=sdt-now_vn
-                # [REFACTOR] thông báo rõ dòng đang chờ đến giờ đăng (chưa bỏ qua im lặng)
+            # [REFACTOR] so sánh Naive giờ VN trực tiếp (sdt từ parse_schedule_date đã là Naive VN)
+            now_vn_naive=vn_now()
+            if hs and sdt>now_vn_naive:
+                tr=sdt-now_vn_naive
+                # [REFACTOR] thông báo rõ dòng đang chờ đến giờ đăng
                 _ui_notify("info",f"Dòng {row_index}: Từ khóa '{kv}' đang chờ đến giờ {sdt.strftime('%Y-%m-%d %H:%M')}")
-                worker_log(f"⏳ Skipping '{kv}', scheduled for {sdt.strftime('%Y-%m-%d %H:%M')} ICT, current time is {now_vn.strftime('%Y-%m-%d %H:%M')} ICT ({int(tr.total_seconds()//3600)}h {int((tr.total_seconds()%3600)//60)}m remaining), waiting...");continue
+                worker_log(f"⏳ Bỏ qua '{kv}', hẹn lúc {sdt.strftime('%Y-%m-%d %H:%M')} (Còn {int(tr.total_seconds()//3600)}h {int((tr.total_seconds()%3600)//60)}m)")
+                continue
             # [REFACTOR] 1) Kiểm tra số dư TRƯỚC khi sinh bài — không đủ thì skip + đánh dấu lỗi
             if get_user_credits(uid)<cpp:
                 worker_log(f"⚠️ User {uid} không đủ số dư để chạy bài '{kv}'")
