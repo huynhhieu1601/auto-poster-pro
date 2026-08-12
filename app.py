@@ -47,10 +47,12 @@ st.set_page_config(page_title="WP Auto-Poster PRO", page_icon="✨", layout="wid
 # (Xem DESIGN.md: teal #0d9488, purple #7c3aed, Hanken Grotesk + JetBrains Mono)
 # ============================================================
 st.markdown("""
+<!-- [FIX OVEN] Tải font BẤT ĐỒNG BỘ (không chặn render như @import) — nếu Google Fonts chậm/không tới, vẫn dùng fallback system font -->
+<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"></noscript>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
-
-html, body, [class*="st-"]{font-family:'Hanken Grotesk',-apple-system,BlinkMacSystemFont,sans-serif;color:#1e293b;background:#ffffff}
+html, body, [class*="st-"]{font-family:'Hanken Grotesk',ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#1e293b;background:#ffffff}
 h1,h2,h3,h4,h5,h6{color:#1e293b!important;letter-spacing:-0.01em}
 [data-testid="stMarkdown"] p{color:#334155}
 
@@ -80,7 +82,7 @@ h1,h2,h3,h4,h5,h6{color:#1e293b!important;letter-spacing:-0.01em}
 .header-banner p{color:rgba(255,255,255,.92)!important}
 
 /* --- Buttons (Lumina) --- */
-.stButton>button{width:100%;border-radius:.5rem;font-weight:600;font-size:.9rem!important;padding:.55rem 1.5rem!important;transition:all .2s!important;font-family:'Hanken Grotesk',sans-serif}
+.stButton>button{width:100%;border-radius:.5rem;font-weight:600;font-size:.9rem!important;padding:.55rem 1.5rem!important;transition:all .2s!important;font-family:'Hanken Grotesk',ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif}
 .stButton>button[kind="primary"]{background:#0d9488!important;color:#fff!important;border:1px solid transparent!important;box-shadow:0 4px 14px rgba(13,148,136,.3)!important}
 .stButton>button[kind="primary"]:hover{background:#0f766e!important;box-shadow:0 6px 18px rgba(13,148,136,.4)!important}
 .stButton>button:not([kind="primary"]){background:transparent!important;color:#1e293b!important;border:1px solid rgba(30,41,59,.1)!important;box-shadow:none!important}
@@ -91,7 +93,7 @@ h1,h2,h3,h4,h5,h6{color:#1e293b!important;letter-spacing:-0.01em}
 [data-testid="stTextInput"] input:focus,[data-testid="stNumberInput"] input:focus,[data-testid="stTextArea"] textarea:focus,[data-baseweb="select"]>div:focus-within{background:#ffffff!important;box-shadow:0 0 0 2px rgba(13,148,136,.45)!important;border:none!important}
 
 /* --- Chips / Badges (JetBrains Mono uppercase) --- */
-.badge-success,.badge-amber,.badge-purple{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;padding:.2rem .7rem;border-radius:9999px;display:inline-block}
+.badge-success,.badge-amber,.badge-purple{font-family:'JetBrains Mono',ui-monospace,'SF Mono','Cascadia Code',Menlo,Consolas,monospace;font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;padding:.2rem .7rem;border-radius:9999px;display:inline-block}
 .badge-success{background:rgba(13,148,136,.1);color:#0f766e}
 .badge-purple{background:rgba(124,58,237,.1);color:#6d28d9}
 .badge-amber{background:rgba(245,158,11,.12);color:#b45309}

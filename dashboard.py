@@ -39,10 +39,10 @@ _CSS = """
 .kpi-card:hover{box-shadow:0 14px 40px rgba(0,0,0,.08)}
 .kpi-card.c2{border-top-color:#0d9488}.kpi-card.c3{border-top-color:#7c3aed}.kpi-card.c4{border-top-color:#f59e0b}
 .kpi-icon{font-size:20px;position:absolute;top:14px;right:16px;opacity:.85}
-.kpi-label{font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#64748b;font-weight:600}
+.kpi-label{font-family:'JetBrains Mono',ui-monospace,'SF Mono','Cascadia Code',Menlo,Consolas,monospace;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#64748b;font-weight:600}
 .kpi-value{font-size:26px;font-weight:800;color:#1e293b;margin:4px 0 0;line-height:1.1;letter-spacing:-0.01em}
 .kpi-sub{font-size:12px;color:#94a3b8;margin-top:6px}
-.health-chip{display:inline-flex;align-items:center;gap:8px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;
+.health-chip{display:inline-flex;align-items:center;gap:8px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Cascadia Code',Menlo,Consolas,monospace;font-size:11px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;
   background:rgba(255,255,255,.8);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
   border:1px solid rgba(30,41,59,.05);border-radius:9999px;padding:8px 16px;margin:4px 8px 4px 0;color:#334155;box-shadow:0 4px 16px rgba(0,0,0,.04)}
 .dot{width:10px;height:10px;border-radius:50%;display:inline-block}
