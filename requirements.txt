@@ -1,9 +1,14 @@
-streamlit
-google-generativeai
-openai
-requests
-beautifulsoup4
-schedule
-plotly
-gspread
-pandas
+# ============================================================
+# Dependencies — Python 3.12 (xem .python-version)
+# Version floor để tránh pip build từ source / lỗi wheel trên cloud
+# (nguyên nhân phổ biến gây màn hình "Your app is in the oven")
+# ============================================================
+streamlit>=1.39.0
+pandas>=2.1.0
+plotly>=5.20.0
+gspread>=6.0.0
+google-generativeai>=0.7.0
+openai>=1.30.0
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+schedule>=1.2.0
