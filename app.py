@@ -49,11 +49,11 @@ st.set_page_config(page_title="WP Auto-Poster PRO", page_icon="✨", layout="wid
 # ============================================================
 # LUMINA SAAS DESIGN SYSTEM — Pure Light / Glassmorphism
 # (Xem DESIGN.md: teal #0d9488, purple #7c3aed, Hanken Grotesk + JetBrains Mono)
-# LƯU Ý: CHỈ dùng <style> thuần — KHÔNG <link>/<noscript>/<!-- --> vì qua sanitizer
-# sẽ làm hỏng cấu trúc <style> → CSS hiển thị dạng text trên trình duyệt.
-# Font dùng stack system (không phụ thuộc Google Fonts → không "in the oven").
+# Inject CSS bằng st.html() (element chuyên dụng HTML/CSS, Streamlit 1.50+)
+# → tránh sanitizer của st.markdown làm hỏng <style> (CSS hiển thị dạng text).
+# Có fallback st.markdown(unsafe_allow_html=True) cho Streamlit cũ.
 # ============================================================
-st.markdown("""
+_LUMINA_CSS = """
 <style>
 html, body, [class*="st-"]{font-family:'Hanken Grotesk',ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#1e293b;background:#ffffff}
 h1,h2,h3,h4,h5,h6{color:#1e293b!important;letter-spacing:-0.01em}
@@ -108,7 +108,17 @@ h1,h2,h3,h4,h5,h6{color:#1e293b!important;letter-spacing:-0.01em}
 [data-testid="stExpander"]{border:1px solid rgba(30,41,59,.05)!important;border-radius:1rem!important;background:rgba(255,255,255,.6);backdrop-filter:blur(12px)}
 [data-testid="stDataFrame"]{border-radius:1rem;overflow:hidden;box-shadow:0 8px 30px rgba(0,0,0,.04)}
 </style>
-""", unsafe_allow_html=True)
+"""
+try:
+    if hasattr(st, "html"):
+        st.html(_LUMINA_CSS)
+    else:
+        st.markdown(_LUMINA_CSS, unsafe_allow_html=True)
+except Exception:
+    try:
+        st.markdown(_LUMINA_CSS, unsafe_allow_html=True)
+    except Exception:
+        pass
 
 # DB
 def get_db():
